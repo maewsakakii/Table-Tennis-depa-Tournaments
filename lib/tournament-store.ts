@@ -178,17 +178,18 @@ export function subscribeToTournamentState(onState: (state: TournamentState) => 
   return () => { void supabase.removeChannel(channel); };
 }
 
-export async function requestAdminMagicLink(email: string) {
+export async function adminSignIn(email: string, password: string) {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) return;
-  const { error } = await supabase.auth.signInWithOtp({
-    email,
-    options: {
-      emailRedirectTo: `${window.location.origin}/admin`,
-      shouldCreateUser: true,
-    },
-  });
+  const { error } = await supabase.auth.signInWithPassword({ email, password });
   if (error) throw new Error(error.message);
+
+  const { data: adminById } = await supabase.from("admin_users").select("user_id").maybeSingle();
+  const { data: adminByEmail } = await supabase.from("admin_emails").select("email").maybeSingle();
+  if (!adminById && !adminByEmail) {
+    await supabase.auth.signOut();
+    throw new Error("บัญชีนี้ไม่มีสิทธิ์ผู้ดูแลการแข่งขัน");
+  }
 }
 
 export async function getAdminSession() {

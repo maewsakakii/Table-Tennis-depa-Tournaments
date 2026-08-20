@@ -22,14 +22,14 @@ npm run dev
 
 1. สร้างโปรเจกต์ใหม่ใน Supabase
 2. เปิด **SQL Editor** แล้วรันไฟล์ `supabase/migrations/001_office_smash.sql`
-3. เปิด SQL Editor แล้วเพิ่มอีเมลผู้จัดที่อนุญาตให้เข้าแอดมิน:
+3. ไปที่ **Authentication → Users → Add user → Create new user** แล้วกำหนดอีเมลและรหัสผ่านสำหรับผู้จัด
+4. เปิด SQL Editor แล้วเพิ่มอีเมลเดียวกันเป็นผู้ดูแล:
 
 ```sql
 insert into public.admin_emails (email)
 values ('your-email@example.com');
 ```
 
-4. ไปที่ **Authentication → URL Configuration** แล้วเพิ่ม URL ของเว็บ เช่น `https://your-project.vercel.app/admin` ใน Redirect URLs
 5. คัดลอก `.env.example` เป็น `.env.local` แล้วกรอกค่า:
 
 ```dotenv
@@ -41,13 +41,13 @@ Migration จะสร้าง:
 
 - ตาราง `players` สำหรับข้อมูลผู้สมัคร
 - ตาราง `admin_users` สำหรับสิทธิ์ผู้จัด
-- ตาราง `admin_emails` สำหรับรายชื่ออีเมลที่รับ Magic Link เข้าแอดมิน
+- ตาราง `admin_emails` สำหรับรายชื่ออีเมลที่มีสิทธิ์เข้าแอดมิน
 - ตาราง `tournament_state` สำหรับสถานะจับคู่ Realtime
 - Storage bucket `player-avatars`
 - RLS policies แยกข้อมูล public/admin
 - Realtime publication สำหรับ `tournament_state`
 
-หน้า `/admin` ไม่ใช้รหัสผ่าน ให้กรอกอีเมลที่อยู่ใน `admin_emails` แล้วเปิด Magic Link ที่ Supabase ส่งให้
+หน้า `/admin` ใช้อีเมลและรหัสผ่านจาก Supabase Authentication โดยอีเมลนั้นต้องอยู่ใน `admin_emails` ด้วย
 
 หากเคยรัน migration รุ่นก่อนแล้ว ให้รัน `supabase/migrations/002_optional_email_magic_link.sql` เพิ่ม โดยไม่ต้องลบข้อมูลเดิม
 

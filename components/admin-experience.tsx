@@ -5,6 +5,8 @@ import {
   ArrowLeft,
   CheckCircle2,
   CircleAlert,
+  Eye,
+  EyeOff,
   Gamepad2,
   LockKeyhole,
   LogOut,
@@ -21,13 +23,13 @@ import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { MatchmakingRoulette } from "@/components/matchmaking-roulette";
 import {
+  adminSignIn,
   adminSignOut,
   getAdminSession,
   getAllPlayers,
   getTournamentState,
   initialTournamentState,
   onlineModeLabel,
-  requestAdminMagicLink,
   saveTournamentState,
   subscribeToTournamentState,
   toPublicPlayer,
@@ -43,7 +45,7 @@ export function AdminExperience() {
   }, []);
 
   if (!session) return <AdminLoading />;
-  if (!session.active) return <AdminLogin />;
+  if (!session.active) return <AdminLogin onSuccess={() => setSession({ active: true, demo: false })} />;
   return <AdminDashboard demo={session.demo} onSignOut={() => setSession({ active: false, demo: false })} />;
 }
 
@@ -51,21 +53,23 @@ function AdminLoading() {
   return <main className={styles.authPage}><div className={styles.loader} /><span>กำลังเปิด Control Room</span></main>;
 }
 
-function AdminLogin() {
+function AdminLogin({ onSuccess }: { onSuccess: () => void }) {
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [sent, setSent] = useState(false);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     setLoading(true);
     setError("");
     try {
-      await requestAdminMagicLink(email);
-      setSent(true);
+      await adminSignIn(email, password);
+      onSuccess();
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "เข้าสู่ระบบไม่สำเร็จ");
+      const message = cause instanceof Error ? cause.message : "เข้าสู่ระบบไม่สำเร็จ";
+      setError(message.toLowerCase().includes("invalid login credentials") ? "อีเมลหรือรหัสผ่านไม่ถูกต้อง" : message);
     } finally {
       setLoading(false);
     }
@@ -79,16 +83,14 @@ function AdminLogin() {
         <div className={styles.controlMark}><Gamepad2 size={26} /></div>
         <span className={styles.kicker}>AUTHORIZED PERSONNEL ONLY</span>
         <h1>Tournament<br /><em>Control Room</em></h1>
-        <p>ไม่ต้องใช้รหัสผ่าน ระบบจะส่ง Magic Link ไปยังอีเมลผู้จัดที่ได้รับอนุญาต</p>
-        {sent ? (
-          <div className={styles.magicSent}><CheckCircle2 size={27} /><b>ส่งลิงก์เข้าแอดมินแล้ว</b><span>เปิดอีเมล {email} แล้วกดลิงก์เพื่อกลับเข้าสู่ Control Room</span><button onClick={() => setSent(false)}>ส่งไปอีเมลอื่น</button></div>
-        ) : (
-          <form onSubmit={submit}>
-            <label><span>อีเมลแอดมิน</span><input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="your-email@example.com" /></label>
-            {error && <div className={styles.authError}><CircleAlert size={16} />{error}</div>}
-            <button className={styles.loginButton} disabled={loading}><LockKeyhole size={18} />{loading ? "กำลังส่งลิงก์..." : "ส่ง Magic Link เข้าแอดมิน"}</button>
-          </form>
-        )}
+        <p>เข้าสู่ระบบด้วยบัญชีผู้จัดที่สร้างไว้ใน Supabase Authentication</p>
+        <form onSubmit={submit}>
+          <label><span>อีเมลแอดมิน</span><input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="your-email@example.com" autoComplete="email" /></label>
+          <label><span>รหัสผ่าน</span><div className={styles.passwordInput}><input type={showPassword ? "text" : "password"} required minLength={8} value={password} onChange={(e) => setPassword(e.target.value)} placeholder="อย่างน้อย 8 ตัวอักษร" autoComplete="current-password" /><button type="button" onClick={() => setShowPassword((value) => !value)} aria-label={showPassword ? "ซ่อนรหัสผ่าน" : "แสดงรหัสผ่าน"}>{showPassword ? <EyeOff size={18} /> : <Eye size={18} />}</button></div></label>
+          {error && <div className={styles.authError}><CircleAlert size={16} />{error}</div>}
+          <button className={styles.loginButton} disabled={loading}><LockKeyhole size={18} />{loading ? "กำลังตรวจสอบ..." : "เข้าสู่ Control Room"}</button>
+        </form>
+        <div className={styles.setupHelp}><b>ตั้งค่าครั้งแรก</b><span>Supabase → Authentication → Users → Add user → Create new user แล้วกำหนดอีเมลและรหัสผ่าน</span></div>
       </motion.section>
     </main>
   );
