@@ -40,7 +40,10 @@ create table if not exists public.players (
   registered_at timestamptz not null default now()
 );
 
-create unique index if not exists players_email_unique
+-- Repair databases that were initialized with the older required-email schema.
+alter table public.players alter column email drop not null;
+drop index if exists public.players_email_unique;
+create unique index players_email_unique
 on public.players (lower(email)) where email is not null;
 
 create table if not exists public.tournament_state (
@@ -60,14 +63,17 @@ alter table public.admin_emails enable row level security;
 alter table public.players enable row level security;
 alter table public.tournament_state enable row level security;
 
+drop policy if exists "Admin can read own role" on public.admin_users;
 create policy "Admin can read own role"
 on public.admin_users for select to authenticated
 using (user_id = auth.uid());
 
+drop policy if exists "Admin can read own email role" on public.admin_emails;
 create policy "Admin can read own email role"
 on public.admin_emails for select to authenticated
 using (email = lower(coalesce(auth.jwt() ->> 'email', '')));
 
+drop policy if exists "Registration is open for inserts" on public.players;
 create policy "Registration is open for inserts"
 on public.players for insert to anon, authenticated
 with check (
@@ -75,19 +81,23 @@ with check (
   and exists (select 1 from public.tournament_state where id = 1 and status = 'registration')
 );
 
+drop policy if exists "Admins can read players" on public.players;
 create policy "Admins can read players"
 on public.players for select to authenticated
 using (public.is_tournament_admin());
 
+drop policy if exists "Admins can update players" on public.players;
 create policy "Admins can update players"
 on public.players for update to authenticated
 using (public.is_tournament_admin())
 with check (public.is_tournament_admin());
 
+drop policy if exists "Tournament state is public" on public.tournament_state;
 create policy "Tournament state is public"
 on public.tournament_state for select to anon, authenticated
 using (true);
 
+drop policy if exists "Admins control tournament state" on public.tournament_state;
 create policy "Admins control tournament state"
 on public.tournament_state for update to authenticated
 using (public.is_tournament_admin())
@@ -106,10 +116,12 @@ on conflict (id) do update set
   file_size_limit = excluded.file_size_limit,
   allowed_mime_types = excluded.allowed_mime_types;
 
+drop policy if exists "Anyone can upload a player avatar" on storage.objects;
 create policy "Anyone can upload a player avatar"
 on storage.objects for insert to anon, authenticated
 with check (bucket_id = 'player-avatars');
 
+drop policy if exists "Admins can manage player avatars" on storage.objects;
 create policy "Admins can manage player avatars"
 on storage.objects for all to authenticated
 using (bucket_id = 'player-avatars' and public.is_tournament_admin())
