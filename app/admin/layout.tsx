@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 
 export const metadata: Metadata = {
-  title: "Tournament Control — OFFICE SMASH",
+  title: "Tournament Control — depa TABLE TENNIS 2026",
   robots: { index: false, follow: false },
 };
 

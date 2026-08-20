@@ -1,4 +1,4 @@
-# OFFICE SMASH — Ping Pong Tournament
+# depa TABLE TENNIS TOURNAMENT 2026
 
 เว็บทัวร์นาเมนต์ปิงปองสำหรับออฟฟิศ ออกแบบ Mobile-First พร้อมระบบลงทะเบียน, Lobby, Admin Control Room และ Matchmaking Roulette แบบ Realtime
 
@@ -22,14 +22,14 @@ npm run dev
 
 1. สร้างโปรเจกต์ใหม่ใน Supabase
 2. เปิด **SQL Editor** แล้วรันไฟล์ `supabase/migrations/001_office_smash.sql`
-3. ไปที่ **Authentication → Users** แล้วสร้างผู้ใช้แอดมินแบบ Email/Password
-4. เปิด SQL Editor แล้วเพิ่มสิทธิ์ให้ผู้ใช้นั้น:
+3. เปิด SQL Editor แล้วเพิ่มอีเมลผู้จัดที่อนุญาตให้เข้าแอดมิน:
 
 ```sql
-insert into public.admin_users (user_id)
-select id from auth.users where email = 'admin@your-company.com';
+insert into public.admin_emails (email)
+values ('your-email@example.com');
 ```
 
+4. ไปที่ **Authentication → URL Configuration** แล้วเพิ่ม URL ของเว็บ เช่น `https://your-project.vercel.app/admin` ใน Redirect URLs
 5. คัดลอก `.env.example` เป็น `.env.local` แล้วกรอกค่า:
 
 ```dotenv
@@ -41,10 +41,17 @@ Migration จะสร้าง:
 
 - ตาราง `players` สำหรับข้อมูลผู้สมัคร
 - ตาราง `admin_users` สำหรับสิทธิ์ผู้จัด
+- ตาราง `admin_emails` สำหรับรายชื่ออีเมลที่รับ Magic Link เข้าแอดมิน
 - ตาราง `tournament_state` สำหรับสถานะจับคู่ Realtime
 - Storage bucket `player-avatars`
 - RLS policies แยกข้อมูล public/admin
 - Realtime publication สำหรับ `tournament_state`
+
+หน้า `/admin` ไม่ใช้รหัสผ่าน ให้กรอกอีเมลที่อยู่ใน `admin_emails` แล้วเปิด Magic Link ที่ Supabase ส่งให้
+
+หากเคยรัน migration รุ่นก่อนแล้ว ให้รัน `supabase/migrations/002_optional_email_magic_link.sql` เพิ่ม โดยไม่ต้องลบข้อมูลเดิม
+
+อีเมลผู้เล่นไม่ได้บังคับและถูกนำออกจากฟอร์ม เพราะเวอร์ชันปัจจุบันยังไม่มีระบบส่งแจ้งเตือนทางอีเมล
 
 ## Deploy with GitHub + Vercel
 

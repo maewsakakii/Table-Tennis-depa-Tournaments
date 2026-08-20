@@ -58,7 +58,7 @@ export function MatchmakingRoulette({
       <div className={styles.grid} aria-hidden="true" />
       <header className={styles.header}>
         <div className={styles.live}><Radio size={13} /> LIVE DRAW</div>
-        <b>OFFICE SMASH</b>
+        <b>depa TABLE TENNIS 2026</b>
         <span>{String(pairIndex + 1).padStart(2, "0")} / {String(pairs.length).padStart(2, "0")}</span>
       </header>
 

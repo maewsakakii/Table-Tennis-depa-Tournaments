@@ -2,7 +2,7 @@ export type Player = {
   id: string;
   nickname: string;
   department: string;
-  email: string;
+  email?: string | null;
   avatarUrl: string;
   registeredAt: string;
   status: "waiting";

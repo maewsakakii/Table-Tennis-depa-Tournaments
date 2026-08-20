@@ -121,6 +121,9 @@ button { color: inherit; }
 }
 .input-wrap select { appearance: none; background-image: linear-gradient(45deg,transparent 50%,var(--lime) 50%),linear-gradient(135deg,var(--lime) 50%,transparent 50%); background-position: calc(100% - 19px) 22px,calc(100% - 14px) 22px; background-size: 5px 5px; background-repeat: no-repeat; }
 .input-wrap input::placeholder { color: #5f706a; }
+.nickname-field .field-label { color: var(--lime); }
+.nickname-field .input-wrap input { color: #fff; border-color: rgba(211,255,72,.35); }
+.nickname-field .input-wrap input::placeholder { color: rgba(245,247,237,.78); opacity: 1; }
 .input-wrap input:focus, .input-wrap select:focus { border-color: var(--lime); box-shadow: 0 0 0 3px rgba(211,255,72,.09); background-color: #0b1a16; }
 .field-invalid .input-wrap input, .field-invalid .input-wrap select { border-color: var(--orange); }
 .field-error { display: block; color: #ff9a7c; font-size: 11px; margin-top: 6px; }

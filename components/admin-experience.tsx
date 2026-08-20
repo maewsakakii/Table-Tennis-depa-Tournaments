@@ -5,8 +5,6 @@ import {
   ArrowLeft,
   CheckCircle2,
   CircleAlert,
-  Eye,
-  EyeOff,
   Gamepad2,
   LockKeyhole,
   LogOut,
@@ -23,13 +21,13 @@ import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import { MatchmakingRoulette } from "@/components/matchmaking-roulette";
 import {
-  adminSignIn,
   adminSignOut,
   getAdminSession,
   getAllPlayers,
   getTournamentState,
   initialTournamentState,
   onlineModeLabel,
+  requestAdminMagicLink,
   saveTournamentState,
   subscribeToTournamentState,
   toPublicPlayer,
@@ -45,7 +43,7 @@ export function AdminExperience() {
   }, []);
 
   if (!session) return <AdminLoading />;
-  if (!session.active) return <AdminLogin onSuccess={() => setSession({ active: true, demo: false })} />;
+  if (!session.active) return <AdminLogin />;
   return <AdminDashboard demo={session.demo} onSignOut={() => setSession({ active: false, demo: false })} />;
 }
 
@@ -53,20 +51,19 @@ function AdminLoading() {
   return <main className={styles.authPage}><div className={styles.loader} /><span>กำลังเปิด Control Room</span></main>;
 }
 
-function AdminLogin({ onSuccess }: { onSuccess: () => void }) {
+function AdminLogin() {
   const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [sent, setSent] = useState(false);
 
   async function submit(event: FormEvent) {
     event.preventDefault();
     setLoading(true);
     setError("");
     try {
-      await adminSignIn(email, password);
-      onSuccess();
+      await requestAdminMagicLink(email);
+      setSent(true);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "เข้าสู่ระบบไม่สำเร็จ");
     } finally {
@@ -82,13 +79,16 @@ function AdminLogin({ onSuccess }: { onSuccess: () => void }) {
         <div className={styles.controlMark}><Gamepad2 size={26} /></div>
         <span className={styles.kicker}>AUTHORIZED PERSONNEL ONLY</span>
         <h1>Tournament<br /><em>Control Room</em></h1>
-        <p>เข้าสู่ระบบเพื่อจัดการผู้เล่นและเริ่มจับคู่แข่งขัน</p>
-        <form onSubmit={submit}>
-          <label><span>อีเมลแอดมิน</span><input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="admin@company.com" /></label>
-          <label><span>รหัสผ่าน</span><div className={styles.passwordInput}><input type={showPassword ? "text" : "password"} required value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" /><button type="button" onClick={() => setShowPassword((value) => !value)} aria-label={showPassword ? "ซ่อนรหัสผ่าน" : "แสดงรหัสผ่าน"}>{showPassword ? <EyeOff size={18} /> : <Eye size={18} />}</button></div></label>
-          {error && <div className={styles.authError}><CircleAlert size={16} />{error}</div>}
-          <button className={styles.loginButton} disabled={loading}><LockKeyhole size={18} />{loading ? "กำลังตรวจสอบ..." : "เข้าสู่ Control Room"}</button>
-        </form>
+        <p>ไม่ต้องใช้รหัสผ่าน ระบบจะส่ง Magic Link ไปยังอีเมลผู้จัดที่ได้รับอนุญาต</p>
+        {sent ? (
+          <div className={styles.magicSent}><CheckCircle2 size={27} /><b>ส่งลิงก์เข้าแอดมินแล้ว</b><span>เปิดอีเมล {email} แล้วกดลิงก์เพื่อกลับเข้าสู่ Control Room</span><button onClick={() => setSent(false)}>ส่งไปอีเมลอื่น</button></div>
+        ) : (
+          <form onSubmit={submit}>
+            <label><span>อีเมลแอดมิน</span><input type="email" required value={email} onChange={(e) => setEmail(e.target.value)} placeholder="your-email@example.com" /></label>
+            {error && <div className={styles.authError}><CircleAlert size={16} />{error}</div>}
+            <button className={styles.loginButton} disabled={loading}><LockKeyhole size={18} />{loading ? "กำลังส่งลิงก์..." : "ส่ง Magic Link เข้าแอดมิน"}</button>
+          </form>
+        )}
       </motion.section>
     </main>
   );
@@ -172,7 +172,6 @@ function AdminDashboard({ demo, onSignOut }: { demo: boolean; onSignOut: () => v
       id: `demo-${index + 1}`,
       nickname,
       department: teams[index % teams.length],
-      email: `demo${index + 1}@office.local`,
       avatarUrl: demoAvatar(nickname, palette[index % palette.length]),
       registeredAt: new Date(Date.now() - index * 60000).toISOString(),
       status: "waiting",
@@ -183,7 +182,7 @@ function AdminDashboard({ demo, onSignOut }: { demo: boolean; onSignOut: () => v
   return (
     <main className={styles.dashboard}>
       <header className={styles.topbar}>
-        <div className={styles.adminBrand}><span><Gamepad2 size={20} /></span><div><b>OFFICE SMASH</b><small>CONTROL ROOM</small></div></div>
+        <div className={styles.adminBrand}><span><Gamepad2 size={20} /></span><div><b>depa TABLE TENNIS</b><small>CONTROL ROOM · 2026</small></div></div>
         <div className={styles.topActions}><Link href="/" aria-label="หน้าผู้เล่น"><ArrowLeft size={18} /></Link><button onClick={signOut} aria-label="ออกจากระบบ"><LogOut size={18} /></button></div>
       </header>
 

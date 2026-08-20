@@ -29,7 +29,7 @@ function mapPlayerRow(row: Record<string, unknown>): Player {
     id: String(row.id),
     nickname: String(row.nickname),
     department: String(row.department),
-    email: String(row.email ?? ""),
+    email: row.email ? String(row.email) : null,
     avatarUrl: String(row.avatar_url),
     registeredAt: String(row.registered_at),
     status: "waiting",
@@ -55,9 +55,15 @@ export async function registerPlayerOnline(player: Player, avatarFile: File | nu
 
   const extension = avatarFile.name.split(".").pop()?.toLowerCase() || "jpg";
   const avatarPath = `${player.id}/profile.${extension}`;
+  const contentType = avatarFile.type || (
+    extension === "heic" ? "image/heic" :
+    extension === "heif" ? "image/heif" :
+    extension === "png" ? "image/png" :
+    extension === "webp" ? "image/webp" : "image/jpeg"
+  );
   const { error: uploadError } = await supabase.storage
     .from("player-avatars")
-    .upload(avatarPath, avatarFile, { upsert: true, contentType: avatarFile.type });
+    .upload(avatarPath, avatarFile, { upsert: true, contentType });
 
   if (uploadError) throw new Error(`อัปโหลดรูปไม่สำเร็จ: ${uploadError.message}`);
 
@@ -67,7 +73,7 @@ export async function registerPlayerOnline(player: Player, avatarFile: File | nu
     id: onlinePlayer.id,
     nickname: onlinePlayer.nickname,
     department: onlinePlayer.department,
-    email: onlinePlayer.email,
+    email: onlinePlayer.email || null,
     avatar_url: onlinePlayer.avatarUrl,
   });
 
@@ -172,20 +178,17 @@ export function subscribeToTournamentState(onState: (state: TournamentState) => 
   return () => { void supabase.removeChannel(channel); };
 }
 
-export async function adminSignIn(email: string, password: string) {
+export async function requestAdminMagicLink(email: string) {
   const supabase = getSupabaseBrowserClient();
-  if (!supabase) return { demo: true };
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  if (!supabase) return;
+  const { error } = await supabase.auth.signInWithOtp({
+    email,
+    options: {
+      emailRedirectTo: `${window.location.origin}/admin`,
+      shouldCreateUser: true,
+    },
+  });
   if (error) throw new Error(error.message);
-  const { data: admin, error: roleError } = await supabase
-    .from("admin_users")
-    .select("user_id")
-    .maybeSingle();
-  if (roleError || !admin) {
-    await supabase.auth.signOut();
-    throw new Error("บัญชีนี้ไม่มีสิทธิ์ผู้ดูแลการแข่งขัน");
-  }
-  return { demo: false };
 }
 
 export async function getAdminSession() {
@@ -193,8 +196,9 @@ export async function getAdminSession() {
   if (!supabase) return { active: true, demo: true };
   const { data } = await supabase.auth.getUser();
   if (!data.user) return { active: false, demo: false };
-  const { data: admin } = await supabase.from("admin_users").select("user_id").maybeSingle();
-  return { active: Boolean(admin), demo: false };
+  const { data: adminById } = await supabase.from("admin_users").select("user_id").maybeSingle();
+  const { data: adminByEmail } = await supabase.from("admin_emails").select("email").maybeSingle();
+  return { active: Boolean(adminById || adminByEmail), demo: false };
 }
 
 export async function adminSignOut() {

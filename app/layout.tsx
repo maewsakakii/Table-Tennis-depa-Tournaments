@@ -15,8 +15,8 @@ const body = IBM_Plex_Sans_Thai({
 });
 
 export const metadata: Metadata = {
-  title: "OFFICE SMASH — ศึกชิงเงินรางวัลสุดพิเศษ",
-  description: "ลงทะเบียนเข้าร่วมทัวร์นาเมนต์ปิงปองของออฟฟิศ",
+  title: "depa TABLE TENNIS TOURNAMENT 2026",
+  description: "ลงทะเบียนเข้าร่วมการแข่งขัน Table Tennis สำหรับพนักงาน depa",
 };
 
 export const viewport: Viewport = {

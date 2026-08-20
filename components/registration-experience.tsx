@@ -6,7 +6,6 @@ import {
   Check,
   ChevronLeft,
   ImagePlus,
-  Mail,
   ShieldCheck,
   Sparkles,
   Trophy,
@@ -27,20 +26,11 @@ import {
   subscribeToTournamentState,
 } from "@/lib/tournament-store";
 import type { Player, TournamentState } from "@/lib/types";
-const departments = [
-  "การตลาด",
-  "ฝ่ายขาย",
-  "ทรัพยากรบุคคล",
-  "การเงินและบัญชี",
-  "ไอที / ผลิตภัณฑ์",
-  "ปฏิบัติการ",
-  "อื่น ๆ",
-];
 
-type FormState = Pick<Player, "nickname" | "department" | "email">;
+type FormState = Pick<Player, "nickname" | "department">;
 type Errors = Partial<Record<keyof FormState | "avatar", string>>;
 
-const emptyForm: FormState = { nickname: "", department: "", email: "" };
+const emptyForm: FormState = { nickname: "", department: "" };
 
 export function RegistrationExperience() {
   const [view, setView] = useState<"registration" | "lobby">("registration");
@@ -87,12 +77,13 @@ export function RegistrationExperience() {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    if (!file.type.startsWith("image/")) {
+    const imageExtension = /\.(jpe?g|png|webp|heic|heif)$/i.test(file.name);
+    if (!file.type.startsWith("image/") && !imageExtension) {
       setErrors((current) => ({ ...current, avatar: "รองรับเฉพาะไฟล์รูปภาพเท่านั้น" }));
       return;
     }
-    if (file.size > 5 * 1024 * 1024) {
-      setErrors((current) => ({ ...current, avatar: "รูปต้องมีขนาดไม่เกิน 5 MB" }));
+    if (file.size > 10 * 1024 * 1024) {
+      setErrors((current) => ({ ...current, avatar: "รูปต้องมีขนาดไม่เกิน 10 MB" }));
       return;
     }
 
@@ -102,14 +93,14 @@ export function RegistrationExperience() {
       setAvatarFile(file);
       setErrors((current) => ({ ...current, avatar: undefined }));
     };
+    reader.onerror = () => setErrors((current) => ({ ...current, avatar: "อ่านไฟล์รูปไม่สำเร็จ กรุณาเลือกรูปอื่น" }));
     reader.readAsDataURL(file);
   }
 
   function validate() {
     const nextErrors: Errors = {};
     if (form.nickname.trim().length < 2) nextErrors.nickname = "กรอกชื่อเล่นอย่างน้อย 2 ตัวอักษร";
-    if (!form.department) nextErrors.department = "เลือกฝ่ายหรือส่วนงานของคุณ";
-    if (!/^\S+@\S+\.\S+$/.test(form.email)) nextErrors.email = "กรอกอีเมลให้ถูกต้อง";
+    if (form.department.trim().length < 2) nextErrors.department = "กรอกฝ่ายหรือส่วนงานอย่างน้อย 2 ตัวอักษร";
     if (!avatarUrl) nextErrors.avatar = "อัปโหลดรูปหน้าจริงก่อนสมัคร";
     setErrors(nextErrors);
     return Object.keys(nextErrors).length === 0;
@@ -127,8 +118,7 @@ export function RegistrationExperience() {
       const newPlayer: Player = {
         id: crypto.randomUUID(),
         nickname: form.nickname.trim(),
-        department: form.department,
-        email: form.email.trim().toLowerCase(),
+        department: form.department.trim(),
         avatarUrl,
         registeredAt: new Date().toISOString(),
         status: "waiting",
@@ -147,7 +137,7 @@ export function RegistrationExperience() {
 
   function editRegistration() {
     if (player) {
-      setForm({ nickname: player.nickname, department: player.department, email: player.email });
+      setForm({ nickname: player.nickname, department: player.department });
       setAvatarUrl(player.avatarUrl);
     }
     setView("registration");
@@ -162,7 +152,7 @@ export function RegistrationExperience() {
       <header className="site-header">
         <button className="brand-lockup" onClick={() => setView("registration")} aria-label="ไปหน้าลงทะเบียน">
           <span className="brand-mark"><span className="brand-paddle" /></span>
-          <span><b>OFFICE</b><strong>SMASH</strong></span>
+          <span><b>depa TABLE TENNIS</b><strong>TOURNAMENT 2026</strong></span>
         </button>
         <div className="live-pill"><span /> REGISTRATION OPEN</div>
       </header>
@@ -177,11 +167,11 @@ export function RegistrationExperience() {
             exit={reduceMotion ? undefined : { opacity: 0, y: -12 }}
           >
             <section className="hype-panel" aria-labelledby="campaign-title">
-              <div className="season-tag"><Zap size={14} fill="currentColor" /> OFFICE LEAGUE · SEASON 01</div>
+              <div className="season-tag"><Zap size={14} fill="currentColor" /> depa TABLE TENNIS · 2026</div>
               <h1 id="campaign-title">
-                ถึงเวลาพิสูจน์<br />ว่าใครคือ <em>ตัวตึง</em>
+                เชิญชวนพนักงาน depa<br />ร่วมเป็น <em>หนึ่งเดียว</em>
               </h1>
-              <p>ศึกปิงปองน็อกเอาต์ ชิงเงินรางวัลสุดพิเศษ<br className="mobile-break" /> และศักดิ์ศรีเบอร์หนึ่งแห่งออฟฟิศ</p>
+              <p>depa TABLE TENNIS TOURNAMENT 2026<br className="mobile-break" /> แข่งขันระบบ Knockout หลังเลิกงาน</p>
               <div className="campaign-stats" aria-label="รายละเอียดการแข่งขัน">
                 <div><span>FORMAT</span><b>1 VS 1</b></div>
                 <div><span>PRIZE POOL</span><b className="prize-value">COMING SOON</b></div>
@@ -199,36 +189,23 @@ export function RegistrationExperience() {
 
               <form onSubmit={handleSubmit} noValidate>
                 <div className="field-grid">
-                  <Field label="ชื่อเล่น" error={errors.nickname} icon={<UserRound size={18} />}>
+                  <Field label="ชื่อเล่น" error={errors.nickname} icon={<UserRound size={18} />} className="nickname-field">
                     <input
                       value={form.nickname}
                       onChange={(event) => updateField("nickname", event.target.value)}
-                      placeholder="เช่น ปิง, นัท, พี่แอม"
+                      placeholder="กรอกชื่อเล่นของคุณ"
                       autoComplete="nickname"
                       aria-invalid={Boolean(errors.nickname)}
                     />
                   </Field>
 
                   <Field label="ฝ่าย / ส่วนงาน" error={errors.department} icon={<UsersRound size={18} />}>
-                    <select
+                    <input
                       value={form.department}
                       onChange={(event) => updateField("department", event.target.value)}
+                      placeholder="พิมพ์ฝ่ายหรือส่วนงานของคุณ"
+                      autoComplete="organization-title"
                       aria-invalid={Boolean(errors.department)}
-                    >
-                      <option value="" disabled>เลือกทีมของคุณ</option>
-                      {departments.map((department) => <option key={department}>{department}</option>)}
-                    </select>
-                  </Field>
-
-                  <Field label="อีเมลบริษัท" error={errors.email} icon={<Mail size={18} />}>
-                    <input
-                      type="email"
-                      value={form.email}
-                      onChange={(event) => updateField("email", event.target.value)}
-                      placeholder="name@company.com"
-                      autoComplete="email"
-                      inputMode="email"
-                      aria-invalid={Boolean(errors.email)}
                     />
                   </Field>
                 </div>
@@ -238,11 +215,16 @@ export function RegistrationExperience() {
                     <div className="label-row"><ImagePlus size={18} /><span>รูปหน้าผู้เล่น</span><small>จำเป็น</small></div>
                     <p>ใช้รูปหน้าจริง เห็นใบหน้าชัดเจน เพื่อใช้บนการ์ดและสายแข่งขัน</p>
                   </div>
-                  <input ref={fileRef} type="file" accept="image/jpeg,image/png,image/webp" onChange={handleAvatar} hidden />
+                  <input ref={fileRef} type="file" accept="image/*,.heic,.heif" onChange={handleAvatar} hidden />
                   <button
                     className={`upload-dropzone ${avatarUrl ? "has-image" : ""} ${errors.avatar ? "has-error" : ""}`}
                     type="button"
-                    onClick={() => fileRef.current?.click()}
+                    onClick={() => {
+                      if (fileRef.current) {
+                        fileRef.current.value = "";
+                        fileRef.current.click();
+                      }
+                    }}
                   >
                     {avatarUrl ? (
                       <>
@@ -254,14 +236,14 @@ export function RegistrationExperience() {
                       <>
                         <span className="upload-icon"><Upload size={24} /></span>
                         <b>แตะเพื่ออัปโหลดรูป</b>
-                        <span>JPG, PNG หรือ WEBP · สูงสุด 5 MB</span>
+                        <span>รูปจากกล้องหรือคลังภาพ · สูงสุด 10 MB</span>
                       </>
                     )}
                   </button>
                   {errors.avatar && <p className="field-error upload-error">{errors.avatar}</p>}
                 </div>
 
-                <div className="privacy-note"><ShieldCheck size={18} /><span>ข้อมูลของคุณใช้สำหรับการจัดการแข่งขันและแจ้งเตือนคิวเท่านั้น</span></div>
+                <div className="privacy-note"><ShieldCheck size={18} /><span>ข้อมูลของคุณใช้สำหรับจัดการแข่งขันและแสดงผลในสายแข่งขันเท่านั้น</span></div>
 
                 <motion.button className="primary-button" type="submit" whileTap={{ scale: 0.97 }}>
                   <span>ล็อกอินเข้าสู่สนาม</span><ArrowRight size={20} />
@@ -274,7 +256,7 @@ export function RegistrationExperience() {
         ) : null}
       </AnimatePresence>
 
-      <footer><span>OFFICE SMASH 2026</span><i /> <span>PLAY FAIR · HAVE FUN</span></footer>
+      <footer><span>depa TABLE TENNIS 2026</span><i /> <span>PLAY FAIR · HAVE FUN</span></footer>
 
       <AnimatePresence>
         {confirmOpen && (
@@ -303,14 +285,16 @@ function Field({
   error,
   icon,
   children,
+  className = "",
 }: {
   label: string;
   error?: string;
   icon: React.ReactNode;
   children: React.ReactNode;
+  className?: string;
 }) {
   return (
-    <label className={`field ${error ? "field-invalid" : ""}`}>
+    <label className={`field ${className} ${error ? "field-invalid" : ""}`}>
       <span className="field-label">{icon}{label}</span>
       <span className="input-wrap">{children}</span>
       {error && <span className="field-error">{error}</span>}
