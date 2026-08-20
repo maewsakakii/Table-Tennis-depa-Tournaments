@@ -24,9 +24,8 @@ import { isAcceptedAvatar } from "@/lib/local-avatar";
 import {
   getTournamentState,
   initialTournamentState,
-  PLAYER_STORAGE_KEY,
   readPlayerIdentity,
-  readSavedPlayer,
+  restoreSavedPlayerSession,
   registerPlayerWithIdentity,
   restorePlayerWithRecoveryCode,
   revealMyOpponent,
@@ -64,15 +63,14 @@ export function RegistrationExperience() {
 
   useEffect(() => {
     const restorePlayer = window.setTimeout(() => {
-      try {
-        const storedPlayer = readSavedPlayer();
+      void restoreSavedPlayerSession().then((storedPlayer) => {
         if (!storedPlayer) return;
         setPlayer(storedPlayer);
         setRecoveryCode(readPlayerIdentity()?.recoveryCode ?? "");
         setView("lobby");
-      } catch {
-        window.localStorage.removeItem(PLAYER_STORAGE_KEY);
-      }
+      }).catch((cause) => {
+        setBackendError(cause instanceof Error ? cause.message : "ตรวจสอบข้อมูลผู้เล่นไม่สำเร็จ");
+      });
     }, 0);
 
     return () => window.clearTimeout(restorePlayer);

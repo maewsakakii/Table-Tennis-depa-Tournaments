@@ -7,6 +7,9 @@ export type Player = {
   avatarUrl: string;
   registeredAt: string;
   status: "waiting";
+  /** Admin-only test roster marker. Never treat this as an identity credential. */
+  isDemo?: boolean;
+  demoSlot?: number | null;
 };
 
 export type PublicPlayer = Pick<Player, "id" | "nickname" | "department" | "avatarUrl">;

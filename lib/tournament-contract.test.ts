@@ -4,14 +4,21 @@ import test from "node:test";
 
 import {
   compactTournamentState,
+  adminDeletePlayer,
+  adminFillDemoPlayers,
   adminIssuePlayerRecoveryCode,
   generateHiddenAssignments,
+  getAdminDraw,
   getAdminSession,
+  getAllPlayers,
   getTournamentState,
   initialTournamentState,
   isLocalDemoEnabled,
   readPlayerIdentity,
   readSavedPlayer,
+  restoreSavedPlayerSession,
+  parseSupabaseAvatarPath,
+  PLAYER_STORAGE_KEY,
   revealMyOpponent,
   restorePlayerWithRecoveryCode,
   saveLocalPlayer,
@@ -241,6 +248,146 @@ test("an admin can issue a one-time recovery code for a legacy local player", as
   delete process.env.NEXT_PUBLIC_ENABLE_LOCAL_DEMO;
 });
 
+test("local admin fills exactly ten stable demo slots without colliding with real DT IDs", async () => {
+  const storage = new MemoryStorage();
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: { localStorage: storage, dispatchEvent() {}, addEventListener() {}, removeEventListener() {} },
+  });
+  process.env.NEXT_PUBLIC_ENABLE_LOCAL_DEMO = "true";
+  const realPlayer: Player = {
+    id: "DT-01", nickname: "ตัวจริง", department: "Digital",
+    avatarUrl: "https://example.test/real.jpg", registeredAt: "2026-08-20T00:00:00.000Z",
+    status: "waiting", isDemo: false, demoSlot: null,
+  };
+  saveLocalPlayer(realPlayer);
+
+  const first = await adminFillDemoPlayers();
+  const repeated = await adminFillDemoPlayers();
+  assert.equal(first.filter((player) => player.isDemo).length, 10);
+  assert.equal(repeated.filter((player) => player.isDemo).length, 10);
+  assert.equal(repeated.length, 11);
+  assert.equal(new Set(repeated.map((player) => player.id)).size, 11);
+  assert.deepEqual(repeated.filter((player) => player.isDemo).map((player) => player.demoSlot), [1,2,3,4,5,6,7,8,9,10]);
+  assert.ok(repeated.filter((player) => player.isDemo).every((player) => /^\/demo-avatars\/demo-\d{2}\.svg$/.test(player.avatarUrl)));
+  assert.equal(readSavedPlayer()?.id, realPlayer.id, "admin test data must not replace the browser's player session");
+  delete process.env.NEXT_PUBLIC_ENABLE_LOCAL_DEMO;
+});
+
+test("opening registration invalidates an older local draw", async () => {
+  const storage = new MemoryStorage();
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: { localStorage: storage, dispatchEvent() {}, addEventListener() {}, removeEventListener() {} },
+  });
+  process.env.NEXT_PUBLIC_ENABLE_LOCAL_DEMO = "true";
+  await adminFillDemoPlayers();
+  const draw = await generateHiddenAssignments();
+  await updateTournamentControls({ revealOpen: true });
+
+  const reopened = await updateTournamentControls({ registrationOpen: true, revealOpen: false });
+  assert.equal(reopened.status, "registration");
+  assert.equal(reopened.registrationOpen, true);
+  assert.equal(reopened.revealOpen, false);
+  assert.equal((await getAdminDraw()).pairs.length, 0);
+  assert.ok(reopened.version > draw.version);
+  delete process.env.NEXT_PUBLIC_ENABLE_LOCAL_DEMO;
+});
+
+test("saved recovery identity is revalidated while a legacy session remains backward-compatible", async () => {
+  const storage = new MemoryStorage();
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: { localStorage: storage, dispatchEvent() {}, addEventListener() {}, removeEventListener() {} },
+  });
+  process.env.NEXT_PUBLIC_ENABLE_LOCAL_DEMO = "true";
+  const player: Player = {
+    id: "DT-01", nickname: "ผู้เล่นเก่า", department: "Digital",
+    avatarUrl: "/demo-avatars/demo-01.svg", registeredAt: "2026-08-20T00:00:00.000Z", status: "waiting",
+  };
+
+  saveLocalPlayer(player);
+  assert.deepEqual(await restoreSavedPlayerSession(), player, "legacy sessions without recovery codes must remain usable");
+
+  saveLocalPlayer(player, "DT-AAAA-BBBB-CCCC-DDDD-EEEE-FFFF");
+  storage.setItem("office-smash-players", "[]");
+  assert.equal(await restoreSavedPlayerSession(), null);
+  assert.equal(storage.getItem(PLAYER_STORAGE_KEY), null, "a deleted identity must not stay in Lobby");
+
+  saveLocalPlayer(player);
+  storage.setItem(PLAYER_STORAGE_KEY, JSON.stringify({ playerId: player.id, recoveryCode: "corrupt-code" }));
+  assert.equal(await restoreSavedPlayerSession(), null);
+  assert.equal(storage.getItem(PLAYER_STORAGE_KEY), null, "a malformed identity must be cleared");
+  delete process.env.NEXT_PUBLIC_ENABLE_LOCAL_DEMO;
+});
+
+test("Supabase avatar cleanup accepts only an exact pending object URL", () => {
+  const origin = "https://project-ref.supabase.co";
+  const uuid = "123e4567-e89b-42d3-a456-426614174000";
+  const valid = `${origin}/storage/v1/object/public/player-avatars/pending/${uuid}.jpg`;
+  assert.equal(parseSupabaseAvatarPath(valid, origin), `pending/${uuid}.jpg`);
+  for (const unsafe of [
+    `${valid}?download=1`,
+    `${valid}#fragment`,
+    `https://user:pass@project-ref.supabase.co/storage/v1/object/public/player-avatars/pending/${uuid}.jpg`,
+    `https://evil.example/storage/v1/object/public/player-avatars/pending/${uuid}.jpg`,
+    `${origin}/storage/v1/object/public/player-avatars/other/${uuid}.jpg`,
+    `${origin}/storage/v1/object/public/player-avatars/pending/not-a-uuid.jpg`,
+    `${origin}/storage/v1/object/public/player-avatars/pending/%2e%2e/${uuid}.jpg`,
+    `${origin}/storage/v1/object/public/player-avatars/pending/${uuid}.svg`,
+  ]) assert.equal(parseSupabaseAvatarPath(unsafe, origin), null, unsafe);
+});
+
+test("deleting a player clears the hidden draw, closes reveal, and refill restores only the missing demo slot", async () => {
+  const storage = new MemoryStorage();
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: { localStorage: storage, dispatchEvent() {}, addEventListener() {}, removeEventListener() {} },
+  });
+  process.env.NEXT_PUBLIC_ENABLE_LOCAL_DEMO = "true";
+  const filled = await adminFillDemoPlayers();
+  const draw = await generateHiddenAssignments();
+  assert.equal(draw.pairs.length, 5);
+  await updateTournamentControls({ revealOpen: true });
+
+  const deleted = filled.find((player) => player.demoSlot === 4)!;
+  await adminDeletePlayer(deleted.id);
+  const clearedDraw = await getAdminDraw();
+  const afterDelete = await getAllPlayers();
+  const state = await getTournamentState();
+  assert.equal(clearedDraw.pairs.length, 0);
+  assert.equal(afterDelete.filter((player) => player.isDemo).length, 9);
+  assert.equal(state.revealOpen, false);
+  assert.equal(state.registrationOpen, false);
+
+  const refilled = await adminFillDemoPlayers();
+  assert.equal(refilled.filter((player) => player.isDemo).length, 10);
+  assert.equal(refilled.filter((player) => player.demoSlot === 4).length, 1);
+  assert.notEqual(refilled.find((player) => player.demoSlot === 4)?.id, deleted.id);
+  delete process.env.NEXT_PUBLIC_ENABLE_LOCAL_DEMO;
+});
+
+test("deleting a legacy direct-JSON player clears its pointer so it cannot rehydrate", async () => {
+  const storage = new MemoryStorage();
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: { localStorage: storage, dispatchEvent() {}, addEventListener() {}, removeEventListener() {} },
+  });
+  process.env.NEXT_PUBLIC_ENABLE_LOCAL_DEMO = "true";
+  const legacy: Player = {
+    id: "DT-07", nickname: "Legacy JSON", department: "Digital",
+    avatarUrl: "/demo-avatars/demo-07.svg", registeredAt: "2026-08-20T00:00:00.000Z", status: "waiting",
+  };
+  storage.setItem("office-smash-players", JSON.stringify([legacy]));
+  storage.setItem(PLAYER_STORAGE_KEY, JSON.stringify(legacy));
+
+  await adminDeletePlayer(legacy.id);
+  assert.equal(storage.getItem(PLAYER_STORAGE_KEY), null);
+  assert.deepEqual(await getAllPlayers(), []);
+  assert.equal(readSavedPlayer(), null);
+  delete process.env.NEXT_PUBLIC_ENABLE_LOCAL_DEMO;
+});
+
 test("migration serializes registration/draw, validates controls and avatar origin, and protects recovery rotation", () => {
   const baseSql = readFileSync(new URL("../supabase/migrations/001_office_smash.sql", import.meta.url), "utf8");
   const sql = readFileSync(new URL("../supabase/migrations/003_hidden_draw_and_player_identity.sql", import.meta.url), "utf8");
@@ -256,4 +403,21 @@ test("migration serializes registration/draw, validates controls and avatar orig
   assert.match(sql, /storage\.objects[\s\S]*bucket_id[\s\S]*avatar_object_name/i);
   assert.match(sql, /players_avatar_url_unique/i);
   assert.match(sql, /revoke all on function public\.admin_issue_player_recovery/i);
+  const rosterSql = readFileSync(new URL("../supabase/migrations/004_admin_demo_roster_tools.sql", import.meta.url), "utf8");
+  assert.match(rosterSql, /add column if not exists is_demo boolean/i);
+  assert.match(rosterSql, /demo_slot[\s\S]*between 1 and 10/i);
+  assert.match(rosterSql, /admin_fill_demo_players[\s\S]*is_tournament_admin/i);
+  assert.match(rosterSql, /admin_delete_player[\s\S]*is_tournament_admin/i);
+  assert.match(rosterSql, /delete from public\.private_matches/i);
+  assert.match(rosterSql, /if p_registration_open and not current_state\.registration_open then[\s\S]*delete from public\.private_matches/i);
+});
+
+test("admin roster UI keeps demo tools visible, warns before delete, and omits the removed subtitle", () => {
+  const ui = readFileSync(new URL("../components/admin-experience.tsx", import.meta.url), "utf8");
+  const registrationUi = readFileSync(new URL("../components/registration-experience.tsx", import.meta.url), "utf8");
+  assert.match(ui, /เติมผู้เล่น Demo ให้ครบ 10 คน/);
+  assert.match(ui, /การลบจะยกเลิกผลจับคู่เดิม/);
+  assert.match(ui, /DEMO/);
+  assert.doesNotMatch(ui, /ล็อกคู่ไว้หลังบ้าน แล้วเปิดให้นักแข่งสุ่มดูคู่ของตัวเองเมื่อพร้อม/);
+  assert.match(registrationUi, /restoreSavedPlayerSession/);
 });

@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { ArrowLeft, CircleAlert, Copy, Eye, EyeOff, Gamepad2, KeyRound, LockKeyhole, LogOut, Radio, RefreshCw, Shuffle, Sparkles, UserPlus, Users, Wifi, X } from "lucide-react";
+import { ArrowLeft, CircleAlert, Copy, Eye, EyeOff, Gamepad2, KeyRound, LockKeyhole, LogOut, Radio, RefreshCw, Shuffle, Sparkles, Trash2, UserPlus, Users, Wifi, X } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
@@ -9,6 +9,8 @@ import {
   adminSignIn,
   adminSignOut,
   adminIssuePlayerRecoveryCode,
+  adminDeletePlayer,
+  adminFillDemoPlayers,
   type AdminSessionState,
   generateHiddenAssignments,
   getAdminDraw,
@@ -17,7 +19,6 @@ import {
   getTournamentState,
   initialTournamentState,
   onlineModeLabel,
-  saveLocalPlayer,
   subscribeToTournamentState,
   updateTournamentControls,
 } from "@/lib/tournament-store";
@@ -70,6 +71,8 @@ function AdminDashboard({ demo, onSignOut }: { demo: boolean; onSignOut: () => v
   const [recoveryTarget, setRecoveryTarget] = useState<Player | null>(null);
   const [issuedRecovery, setIssuedRecovery] = useState<{ playerId: string; recoveryCode: string } | null>(null);
   const [issuingRecovery, setIssuingRecovery] = useState(false);
+  const [deleteTarget, setDeleteTarget] = useState<Player | null>(null);
+  const [deleteError, setDeleteError] = useState("");
 
   const loadData = useCallback(async () => {
     setLoading(true); setError("");
@@ -87,7 +90,7 @@ function AdminDashboard({ demo, onSignOut }: { demo: boolean; onSignOut: () => v
 
   const playerMap = useMemo(() => new Map(players.map((player) => [player.id, player])), [players]);
 
-  async function mutate(action: () => Promise<TournamentState | AdminDraw>) {
+  async function mutate(action: () => Promise<unknown>) {
     setMutating(true); setError("");
     try { await action(); await loadData(); }
     catch (cause) { setError(cause instanceof Error ? cause.message : "บันทึกคำสั่งไม่สำเร็จ"); }
@@ -106,19 +109,28 @@ function AdminDashboard({ demo, onSignOut }: { demo: boolean; onSignOut: () => v
 
   function closeRecoverySheet() { setRecoveryTarget(null); setIssuedRecovery(null); }
 
-  function addDemoPlayers() {
-    const names = ["พี่แอม", "นัท", "ปิง", "เจ", "มุก", "ต้น", "แพรว", "บอส"];
-    const teams = ["การตลาด", "ไอที / ผลิตภัณฑ์", "ฝ่ายขาย", "ปฏิบัติการ"];
-    const palette = ["65e5ff", "ff7146", "d3ff48", "e3a6ff"];
-    const samples: Player[] = names.map((nickname, index) => ({ id: `DT-${String(index + 1).padStart(2, "0")}`, nickname, department: teams[index % teams.length], avatarUrl: demoAvatar(nickname, palette[index % palette.length]), registeredAt: new Date(Date.now() - index * 60000).toISOString(), status: "waiting" }));
-    samples.forEach((player) => saveLocalPlayer(player));
-    setPlayers(samples);
+  const demoCount = players.filter((player) => player.isDemo).length;
+
+  async function confirmDeletePlayer() {
+    if (!deleteTarget) return;
+    const targetId = deleteTarget.id;
+    setMutating(true); setDeleteError(""); setError("");
+    try {
+      const result = await adminDeletePlayer(targetId);
+      await loadData();
+      setDeleteTarget(null);
+      if (result.warning) setError(result.warning);
+    } catch (cause) {
+      setDeleteError(cause instanceof Error ? cause.message : "ลบผู้เล่นไม่สำเร็จ");
+    } finally {
+      setMutating(false);
+    }
   }
 
   return <main className={styles.dashboard}>
     <header className={styles.topbar}><div className={styles.adminBrand}><span><Gamepad2 size={20} /></span><div><b>depa TABLE TENNIS</b><small>CONTROL ROOM · 2026</small></div></div><div className={styles.topActions}><Link href="/" aria-label="หน้าผู้เล่น"><ArrowLeft size={18} /></Link><button onClick={signOut} aria-label="ออกจากระบบ"><LogOut size={18} /></button></div></header>
     <div className={styles.dashboardBody}>
-      <section className={styles.dashboardTitle}><div><span className={styles.kicker}>TOURNAMENT OPERATIONS</span><h1>Match Control</h1><p>ล็อกคู่ไว้หลังบ้าน แล้วเปิดให้นักแข่งสุ่มดูคู่ของตัวเองเมื่อพร้อม</p></div><div className={`${styles.modeBadge} ${demo ? styles.demo : ""}`}><Wifi size={14} />{onlineModeLabel()}</div></section>
+      <section className={styles.dashboardTitle}><div><span className={styles.kicker}>TOURNAMENT OPERATIONS</span><h1>Match Control</h1></div><div className={`${styles.modeBadge} ${demo ? styles.demo : ""}`}><Wifi size={14} />{onlineModeLabel()}</div></section>
       {demo && <div className={styles.demoNotice}><Sparkles size={17} /><div><b>กำลังใช้ Local Demo Mode</b><span>ข้อมูลทำงานเฉพาะเบราว์เซอร์นี้ ไม่ใช่ระบบออนไลน์</span></div></div>}
       {error && <div className={styles.errorBanner}><CircleAlert size={17} />{error}</div>}
       <section className={styles.metrics}><div><span>REGISTERED</span><b>{players.length}</b><small>PLAYERS</small></div><div><span>ROUND 01</span><b>{Math.ceil(players.length / 2)}</b><small>MATCHES</small></div><div><span>REVEAL</span><b className={tournament.revealOpen ? styles.onlineText : styles.offlineText}>{tournament.revealOpen ? "OPEN" : "LOCK"}</b><small>{tournament.status.toUpperCase()}</small></div></section>
@@ -132,9 +144,10 @@ function AdminDashboard({ demo, onSignOut }: { demo: boolean; onSignOut: () => v
       </section>
 
       {draw.pairs.length > 0 && <PairSummary draw={draw} playerMap={playerMap} />}
-      <section className={styles.rosterPanel}><div className={styles.rosterHead}><div><span>PLAYER ROSTER</span><h2>ผู้สมัครทั้งหมด <i>{players.length}</i></h2></div><button onClick={loadData} disabled={loading} aria-label="โหลดรายชื่อใหม่"><RefreshCw size={17} className={loading ? styles.spinning : ""} /></button></div>{players.length ? <div className={styles.playerList}>{players.map((player, index) => <PlayerRow player={player} index={index} key={player.id} onIssueRecovery={() => { setRecoveryTarget(player); setIssuedRecovery(null); }} />)}</div> : <div className={styles.emptyRoster}><Users size={30} /><b>ยังไม่มีผู้สมัคร</b><span>รายชื่อจะปรากฏหลังมีผู้เล่นลงทะเบียน</span>{demo && <button onClick={addDemoPlayers}><UserPlus size={16} /> เพิ่มผู้เล่นตัวอย่าง 8 คน</button>}</div>}</section>
+      <section className={styles.rosterPanel}><div className={styles.rosterHead}><div><span>PLAYER ROSTER</span><h2>ผู้สมัครทั้งหมด <i>{players.length}</i></h2></div><button onClick={loadData} disabled={loading} aria-label="โหลดรายชื่อใหม่"><RefreshCw size={17} className={loading ? styles.spinning : ""} /></button></div><button className={styles.demoAdd} onClick={() => void mutate(adminFillDemoPlayers)} disabled={mutating || demoCount >= 10}><UserPlus size={17} />{demoCount >= 10 ? "ผู้เล่น Demo ครบ 10 คนแล้ว" : `เติมผู้เล่น Demo ให้ครบ 10 คน (${demoCount}/10)`}</button>{players.length ? <div className={styles.playerList}>{players.map((player, index) => <PlayerRow player={player} index={index} key={player.id} onIssueRecovery={() => { setRecoveryTarget(player); setIssuedRecovery(null); }} onDelete={() => { setDeleteTarget(player); setDeleteError(""); }} />)}</div> : <div className={styles.emptyRoster}><Users size={30} /><b>ยังไม่มีผู้สมัคร</b><span>รายชื่อจะปรากฏหลังมีผู้เล่นลงทะเบียน</span></div>}</section>
     </div>
     {recoveryTarget && <AdminRecoverySheet player={recoveryTarget} issued={issuedRecovery} loading={issuingRecovery} onIssue={() => void issueRecoveryCode()} onClose={closeRecoverySheet} />}
+    {deleteTarget && <AdminDeleteSheet player={deleteTarget} loading={mutating} error={deleteError} onDelete={() => void confirmDeletePlayer()} onClose={() => { setDeleteTarget(null); setDeleteError(""); }} />}
   </main>;
 }
 
@@ -146,12 +159,14 @@ function PairSummary({ draw, playerMap }: { draw: AdminDraw; playerMap: Map<stri
   return <section className={styles.pairPanel}><div className={styles.sectionHead}><div><span>ADMIN ONLY · DRAW V{draw.version}</span><h2>ตัวอย่างคู่ลับหลังบ้าน</h2></div><Eye size={20} /></div><p className={styles.privateNote}><LockKeyhole size={14} /> หน้าผู้เล่นยังไม่เห็นรายชื่อนี้</p><div className={styles.pairList}>{draw.pairs.map((pair, index) => { const first = playerMap.get(pair.player1Id); const second = pair.player2Id ? playerMap.get(pair.player2Id) : null; return <div className={styles.pairRow} key={pair.id}><small>{String(index + 1).padStart(2, "0")}</small><span>{first?.nickname ?? pair.player1Id}</span><b>{second ? "VS" : "BYE"}</b><span>{second?.nickname ?? "ชนะบาย"}</span></div>; })}</div></section>;
 }
 
-function PlayerRow({ player, index, onIssueRecovery }: { player: Player; index: number; onIssueRecovery: () => void }) { return <article className={styles.playerRow}><small>{String(index + 1).padStart(2, "0")}</small><div className={styles.rowAvatar}><Image src={player.avatarUrl} alt="" fill unoptimized /></div><div><b>{player.nickname}</b><span>{player.id} · {player.department}</span></div><button className={styles.recoveryAction} type="button" onClick={onIssueRecovery} aria-label={`ออกรหัสกู้คืนใหม่ให้ ${player.nickname}`}><KeyRound size={16} /><span>รหัส</span></button></article>; }
+function PlayerRow({ player, index, onIssueRecovery, onDelete }: { player: Player; index: number; onIssueRecovery: () => void; onDelete: () => void }) { return <article className={styles.playerRow}><small>{String(index + 1).padStart(2, "0")}</small><div className={styles.rowAvatar}><Image src={player.avatarUrl} alt="" fill unoptimized /></div><div className={styles.playerName}><div><b>{player.nickname}</b>{player.isDemo && <i>DEMO</i>}</div><span>{player.id} · {player.department}</span></div><div className={styles.rowActions}><button className={styles.recoveryAction} type="button" onClick={onIssueRecovery} aria-label={`ออกรหัสกู้คืนใหม่ให้ ${player.nickname}`}><KeyRound size={16} /><span>รหัส</span></button><button className={styles.deleteAction} type="button" onClick={onDelete} aria-label={`ลบ ${player.nickname}`}><Trash2 size={17} /></button></div></article>; }
+
+function AdminDeleteSheet({ player, loading, error, onDelete, onClose }: { player: Player; loading: boolean; error: string; onDelete: () => void; onClose: () => void }) {
+  return <div className={styles.sheetBackdrop}><motion.section className={styles.recoverySheet} role="dialog" aria-modal="true" aria-labelledby="admin-delete-title" initial={{ y: "100%" }} animate={{ y: 0 }}><button className={styles.sheetClose} type="button" onClick={onClose} disabled={loading} aria-label="ปิด"><X size={20} /></button><div className={styles.deleteMark}><Trash2 size={24} /></div><span className={styles.kicker}>REMOVE PLAYER</span><h2 id="admin-delete-title">ลบ {player.nickname} ออกจากการแข่งขัน?</h2><p className={styles.recoveryWarning}>การลบจะยกเลิกผลจับคู่เดิมและปิดการเปิดเผยคู่ทันที หลังแก้รายชื่อแล้วต้องสุ่มและล็อกคู่ใหม่</p>{error && <div className={styles.authError}><CircleAlert size={16} />{error}</div>}<button className={styles.deleteConfirmButton} type="button" onClick={onDelete} disabled={loading}><Trash2 size={18} />{loading ? "กำลังลบ..." : "ยืนยันลบผู้เล่น"}</button><button className={styles.cancelButton} type="button" onClick={onClose} disabled={loading}>ยกเลิก</button></motion.section></div>;
+}
 
 function AdminRecoverySheet({ player, issued, loading, onIssue, onClose }: { player: Player; issued: { playerId: string; recoveryCode: string } | null; loading: boolean; onIssue: () => void; onClose: () => void }) {
   const [copied, setCopied] = useState(false);
   async function copyCode() { if (!issued) return; try { await navigator.clipboard.writeText(issued.recoveryCode); setCopied(true); } catch { setCopied(false); } }
   return <div className={styles.sheetBackdrop}><motion.section className={styles.recoverySheet} role="dialog" aria-modal="true" aria-labelledby="admin-recovery-title" initial={{ y: "100%" }} animate={{ y: 0 }}><button className={styles.sheetClose} type="button" onClick={onClose} aria-label="ปิด"><X size={20} /></button><div className={styles.recoveryMark}><KeyRound size={24} /></div><span className={styles.kicker}>PLAYER RECOVERY</span><h2 id="admin-recovery-title">{issued ? "รหัสใหม่พร้อมส่งให้ผู้เล่น" : `ออกรหัสใหม่ให้ ${player.nickname}`}</h2>{issued ? <><div className={styles.issuedCode}><span>{issued.playerId}</span><strong>{issued.recoveryCode}</strong></div><p className={styles.recoveryWarning}>รหัสนี้แสดงเพียงครั้งเดียว ส่งให้ผู้เล่นผ่านช่องทางส่วนตัว และอย่าแชร์ในกลุ่มสาธารณะ</p><button className={styles.copyButton} type="button" onClick={copyCode}><Copy size={18} />{copied ? "คัดลอกแล้ว" : "คัดลอกรหัส"}</button></> : <><p className={styles.recoveryWarning}>การยืนยันจะทำให้รหัสเดิมใช้ไม่ได้ทันที ใช้เมื่อผู้เล่นทำรหัสหายหรือเป็นบัญชีเดิมที่ยังไม่มีรหัสเท่านั้น</p><button className={styles.issueButton} type="button" onClick={onIssue} disabled={loading}><KeyRound size={18} />{loading ? "กำลังออกรหัส..." : "ยืนยันและหมุนรหัสใหม่"}</button></>}<button className={styles.cancelButton} type="button" onClick={onClose}>{issued ? "ปิดหน้าต่าง" : "ยกเลิก"}</button></motion.section></div>;
 }
-
-function demoAvatar(name: string, color: string) { const initial = name.replace("พี่", "").slice(0, 1); const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="500" height="500"><rect width="500" height="500" fill="#10211c"/><circle cx="250" cy="205" r="96" fill="#${color}" opacity=".82"/><path d="M90 500c12-122 79-183 160-183s148 61 160 183" fill="#${color}" opacity=".55"/><text x="250" y="245" text-anchor="middle" font-size="100" font-family="sans-serif" font-weight="700" fill="#06100e">${initial}</text></svg>`; return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`; }

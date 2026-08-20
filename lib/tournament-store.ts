@@ -68,6 +68,8 @@ function mapPlayerRow(row: Record<string, unknown>): Player {
     avatarUrl: String(row.avatar_url),
     registeredAt: String(row.registered_at),
     status: "waiting",
+    isDemo: Boolean(row.is_demo),
+    demoSlot: row.demo_slot == null ? null : Number(row.demo_slot),
   };
 }
 
@@ -270,6 +272,45 @@ export function readPlayerIdentity(): PlayerIdentity | null {
   return session?.recoveryCode && playerId ? { playerId, recoveryCode: session.recoveryCode } : null;
 }
 
+function clearStoredPlayerSessionIfMatches(playerId: string) {
+  const storedValue = window.localStorage.getItem(PLAYER_STORAGE_KEY);
+  const session = parseStoredSession(storedValue);
+  const legacyPlayer = parseStoredPlayer(storedValue);
+  const storedPlayerId = session?.player?.id ?? session?.playerId ?? legacyPlayer?.id;
+  if (storedPlayerId === playerId) {
+    window.localStorage.removeItem(PLAYER_STORAGE_KEY);
+  }
+  const recoveryMap = readLocalRecoveryMap();
+  if (playerId in recoveryMap) {
+    delete recoveryMap[playerId];
+    try { window.localStorage.setItem(RECOVERY_STORAGE_KEY, JSON.stringify(recoveryMap)); }
+    catch { /* deletion already succeeded; stale demo recovery data is non-critical */ }
+  }
+}
+
+/**
+ * Revalidates modern recovery-backed sessions before showing the Lobby.
+ * Legacy sessions intentionally remain readable until an admin issues a recovery code.
+ */
+export async function restoreSavedPlayerSession(): Promise<Player | null> {
+  const identity = readPlayerIdentity();
+  const legacyPlayer = readSavedPlayer();
+  if (!identity) return legacyPlayer;
+  try {
+    return await restorePlayerWithRecoveryCode(identity.recoveryCode);
+  } catch (cause) {
+    if (cause instanceof Error && [
+      "ไม่พบผู้เล่นสำหรับรหัสนี้",
+      "รูปแบบรหัสกู้คืนไม่ถูกต้อง",
+      "invalid player identity",
+    ].includes(cause.message)) {
+      clearStoredPlayerSessionIfMatches(identity.playerId);
+      return null;
+    }
+    throw cause;
+  }
+}
+
 export async function restorePlayerWithRecoveryCode(value: string) {
   const recoveryCode = normalizeRecoveryCode(value);
   if (!recoveryCode) throw new Error("รูปแบบรหัสกู้คืนไม่ถูกต้อง");
@@ -302,7 +343,7 @@ export async function getAllPlayers() {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) { assertAvailableBackend(); return readLocalPlayers(); }
   const { data, error } = await supabase.from("players")
-    .select("public_id,nickname,department,email,avatar_url,registered_at")
+    .select("public_id,nickname,department,email,avatar_url,registered_at,is_demo,demo_slot")
     .order("registered_at", { ascending: true });
   if (error) throw new Error(error.message);
   return (data ?? []).map((row) => mapPlayerRow(row));
@@ -441,9 +482,165 @@ export async function updateTournamentControls(changes: Partial<Pick<TournamentS
   const current = await getTournamentState();
   const candidate = { ...current, ...changes };
   assertValidTournamentState(candidate);
+  const reopeningRegistration = changes.registrationOpen === true && !current.registrationOpen;
+  if (reopeningRegistration && !getSupabaseBrowserClient()) {
+    const previousDraw = window.localStorage.getItem(DRAW_STORAGE_KEY);
+    const reopened: TournamentState = {
+      ...current,
+      version: current.version + 1,
+      status: "registration",
+      registrationOpen: true,
+      revealOpen: false,
+      startedAt: null,
+    };
+    window.localStorage.removeItem(DRAW_STORAGE_KEY);
+    try { await saveTournamentState(reopened); }
+    catch (cause) { restoreStorageValue(DRAW_STORAGE_KEY, previousDraw); throw cause; }
+    return reopened;
+  }
   const next = compactTournamentState(candidate);
   await saveTournamentState(next);
   return next;
+}
+
+const DEMO_PLAYER_PROFILES = [
+  ["พี่แอม", "การตลาด"],
+  ["นัท", "ไอที / ผลิตภัณฑ์"],
+  ["ปิง", "ฝ่ายขาย"],
+  ["เจ", "ปฏิบัติการ"],
+  ["มุก", "การตลาด"],
+  ["ต้น", "ไอที / ผลิตภัณฑ์"],
+  ["แพรว", "ฝ่ายขาย"],
+  ["บอส", "ปฏิบัติการ"],
+  ["ฟ้า", "กลยุทธ์องค์กร"],
+  ["นนท์", "ทรัพยากรบุคคล"],
+] as const;
+
+function writeLocalPlayers(players: Player[]) {
+  try {
+    window.localStorage.setItem(PLAYERS_STORAGE_KEY, JSON.stringify(players));
+  } catch (cause) {
+    if (isQuotaExceededError(cause)) throw new Error("พื้นที่จัดเก็บไม่พอสำหรับเพิ่มผู้เล่น Demo");
+    throw cause;
+  }
+}
+
+async function invalidateLocalDrawAfterRosterChange() {
+  const current = await getTournamentState();
+  window.localStorage.removeItem(DRAW_STORAGE_KEY);
+  await saveTournamentState({
+    ...current,
+    version: current.version + 1,
+    status: current.registrationOpen ? "registration" : "locked",
+    revealOpen: false,
+    startedAt: null,
+  });
+}
+
+async function persistLocalRosterChange(players: Player[]) {
+  const previousRoster = window.localStorage.getItem(PLAYERS_STORAGE_KEY);
+  const previousDraw = window.localStorage.getItem(DRAW_STORAGE_KEY);
+  const previousState = window.localStorage.getItem(STATE_STORAGE_KEY);
+  try {
+    writeLocalPlayers(players);
+    await invalidateLocalDrawAfterRosterChange();
+  } catch (cause) {
+    restoreStorageValue(PLAYERS_STORAGE_KEY, previousRoster);
+    restoreStorageValue(DRAW_STORAGE_KEY, previousDraw);
+    restoreStorageValue(STATE_STORAGE_KEY, previousState);
+    throw cause;
+  }
+}
+
+/** Admin-only test helper. It creates one stable sample for every missing demo slot. */
+export async function adminFillDemoPlayers(): Promise<Player[]> {
+  const supabase = getSupabaseBrowserClient();
+  if (supabase) {
+    const { error } = await supabase.rpc("admin_fill_demo_players");
+    if (error) throw new Error(error.message);
+    return getAllPlayers();
+  }
+  assertAvailableBackend();
+  const players = readLocalPlayers();
+  const occupiedSlots = new Set(players.filter((player) => player.isDemo).map((player) => player.demoSlot));
+  const createdAt = Date.now();
+  let changed = false;
+  for (let index = 0; index < DEMO_PLAYER_PROFILES.length; index += 1) {
+    const slot = index + 1;
+    if (occupiedSlots.has(slot)) continue;
+    const [nickname, department] = DEMO_PLAYER_PROFILES[index];
+    const id = nextPublicPlayerId(players.map((player) => player.id));
+    players.push({
+      id,
+      nickname,
+      department,
+      avatarUrl: `/demo-avatars/demo-${String(slot).padStart(2, "0")}.svg`,
+      registeredAt: new Date(createdAt + slot).toISOString(),
+      status: "waiting",
+      isDemo: true,
+      demoSlot: slot,
+    });
+    changed = true;
+  }
+  if (changed) {
+    await persistLocalRosterChange(players);
+  }
+  return players;
+}
+
+/** Removes one roster entry and invalidates any assignments that referenced the old roster. */
+export type AdminDeleteResult = { deleted: true; warning?: string };
+
+export function parseSupabaseAvatarPath(
+  avatarUrl: string,
+  configuredUrl = process.env.NEXT_PUBLIC_SUPABASE_URL,
+): string | null {
+  if (!configuredUrl || avatarUrl !== avatarUrl.trim() || /[%\\]/.test(avatarUrl)) return null;
+  try {
+    const source = new URL(avatarUrl);
+    const configured = new URL(configuredUrl);
+    if (
+      source.origin !== configured.origin
+      || source.username !== ""
+      || source.password !== ""
+      || source.search !== ""
+      || source.hash !== ""
+    ) return null;
+    const match = source.pathname.match(
+      /^\/storage\/v1\/object\/public\/player-avatars\/pending\/([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.(?:jpg|jpeg|png|webp|heic|heif))$/,
+    );
+    return match ? `pending/${match[1]}` : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function adminDeletePlayer(playerId: string): Promise<AdminDeleteResult> {
+  const supabase = getSupabaseBrowserClient();
+  if (supabase) {
+    const { data, error } = await supabase.rpc("admin_delete_player", { p_public_id: playerId });
+    if (error) throw new Error(error.message);
+    const row = (Array.isArray(data) ? data[0] : data) as Record<string, unknown> | null;
+    if (!row?.deleted_public_id) throw new Error("ระบบไม่ได้ยืนยันผลการลบผู้เล่น");
+    clearStoredPlayerSessionIfMatches(String(row.deleted_public_id));
+    if (!row.deleted_is_demo) {
+      const avatarPath = parseSupabaseAvatarPath(String(row.deleted_avatar_url ?? ""));
+      if (!avatarPath) {
+        return { deleted: true, warning: "ลบผู้เล่นแล้ว แต่ข้ามการลบไฟล์รูป เพราะ URL รูปไม่ตรงกับ Supabase ที่ตั้งค่าไว้" };
+      }
+      const { error: cleanupError } = await supabase.storage.from("player-avatars").remove([avatarPath]);
+      if (cleanupError) {
+        return { deleted: true, warning: `ลบผู้เล่นแล้ว แต่ลบไฟล์รูปไม่สำเร็จ: ${cleanupError.message}` };
+      }
+    }
+    return { deleted: true };
+  }
+  assertAvailableBackend();
+  const players = readLocalPlayers();
+  if (!players.some((player) => player.id === playerId)) throw new Error("ไม่พบผู้เล่นที่เลือก");
+  await persistLocalRosterChange(players.filter((player) => player.id !== playerId));
+  clearStoredPlayerSessionIfMatches(playerId);
+  return { deleted: true };
 }
 
 function readLocalRecoveryMap() {

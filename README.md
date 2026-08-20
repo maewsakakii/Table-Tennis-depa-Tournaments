@@ -21,7 +21,7 @@ Local Demo จะไม่เปิดเองอัตโนมัติ เ�
 ## Supabase setup
 
 1. สร้างโปรเจกต์ใหม่ใน Supabase
-2. เปิด **SQL Editor** แล้วรันไฟล์ migration ตามลำดับ `001`, `002`, `003` (ไฟล์ทั้งหมดรันซ้ำได้)
+2. เปิด **SQL Editor** แล้วรันไฟล์ migration ตามลำดับ `001`, `002`, `003`, `004` (ไฟล์ทั้งหมดรันซ้ำได้)
 3. ไปที่ **Authentication → Users → Add user → Create new user** แล้วกำหนดอีเมลและรหัสผ่านสำหรับผู้จัด
 4. เปิด SQL Editor แล้วเพิ่มอีเมลเดียวกันเป็นผู้ดูแล:
 
@@ -48,10 +48,13 @@ Migration จะสร้าง:
 - Storage bucket `player-avatars`
 - RLS policies แยกข้อมูล public/admin
 - Realtime publication สำหรับ `tournament_state`
+- เครื่องมือแอดมินสำหรับเติมผู้เล่น Demo 10 คนและลบผู้เล่น โดยรีเซ็ตผลจับคู่เดิมอย่างปลอดภัย
 
 หน้า `/admin` ใช้อีเมลและรหัสผ่านจาก Supabase Authentication โดยอีเมลนั้นต้องอยู่ใน `admin_emails` ด้วย
 
 หากเคยติดตั้งเวอร์ชันก่อนแล้ว ให้รัน `supabase/migrations/003_hidden_draw_and_player_identity.sql` เพิ่มได้เลยโดยไม่ต้องลบผู้เล่นเดิม ระบบจะกำหนด Public Player ID แบบ `DT-01`, `DT-02`, … ให้ข้อมูลเดิมอัตโนมัติ
+
+หลังอัปเดตฟีเจอร์ผู้เล่น Demo ให้รัน `supabase/migrations/004_admin_demo_roster_tools.sql` เพิ่มอีกครั้ง หน้าแอดมินจึงจะเติม/ลบผู้เล่นบน Supabase ได้
 
 ผู้เล่นที่สมัครก่อน migration 003 จะยังไม่มี Recovery Code ให้แอดมินเปิดการ์ดผู้เล่นใน `/admin` แล้วเลือกออกรหัสใหม่ ส่งให้เจ้าตัวผ่านช่องทางส่วนตัว รหัสเดิม (ถ้ามี) จะใช้ไม่ได้ทันที
 
