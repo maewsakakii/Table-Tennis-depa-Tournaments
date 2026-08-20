@@ -44,7 +44,7 @@ alter table public.players
 do $$
 declare highest bigint;
 begin
-  select coalesce(pg_catalog.max(pg_catalog.substring(p.public_id from '^DT-([0-9]+)$')::bigint), 0)
+  select coalesce(pg_catalog.max(pg_catalog.substring(p.public_id, '^DT-([0-9]+)$')::bigint), 0)
     into highest from public.players p;
   if highest > coalesce(pg_catalog.pg_sequence_last_value('public.player_public_id_seq'::regclass), 0) then
     perform pg_catalog.setval('public.player_public_id_seq', highest, true);
