@@ -169,7 +169,7 @@ export function RegistrationExperience() {
             <section className="hype-panel" aria-labelledby="campaign-title">
               <div className="season-tag"><Zap size={14} fill="currentColor" /> depa TABLE TENNIS · 2026</div>
               <h1 id="campaign-title">
-                เชิญชวนพนักงาน depa<br />ร่วมเป็น <em>หนึ่งเดียว</em>
+                ถึงเวลาพิสูจน์<br />ว่าใครคือ <em>ตัวตึง</em>
               </h1>
               <p>depa TABLE TENNIS TOURNAMENT 2026<br className="mobile-break" /> แข่งขันระบบ Knockout หลังเลิกงาน</p>
               <div className="campaign-stats" aria-label="รายละเอียดการแข่งขัน">
