@@ -507,6 +507,17 @@ test("full bracket migration is rerunnable, private, authorized, and safe-update
   assert.match(sql, /reveal_my_opponent[\s\S]*selected_match\.id is null or selected_match\.status not in \('ready','bye'\)/i);
 });
 
+test("player public IDs are allocated around numbers the roster already uses", () => {
+  const sql = readFileSync(new URL("../supabase/migrations/008_collision_free_player_ids.sql", import.meta.url), "utf8");
+  assert.match(sql, /create or replace function public\.allocate_player_public_id/i);
+  assert.match(sql, /allocate_player_public_id[\s\S]*loop[\s\S]*nextval\('public\.player_public_id_seq'\)/i);
+  assert.match(sql, /exit when not exists \(select 1 from public\.players p where p\.public_id = candidate\)/i);
+  assert.match(sql, /set search_path = pg_catalog/i);
+  assert.match(sql, /alter column public_id set default public\.allocate_player_public_id\(\)/i);
+  assert.match(sql, /revoke all on function public\.allocate_player_public_id\(\) from public, anon/i);
+  assert.doesNotMatch(sql, /drop\s+(table|column|sequence)/i);
+});
+
 test("local full bracket persistence is compact and player snapshots are recovery-gated", async () => {
   const storage = new MemoryStorage();
   Object.defineProperty(globalThis, "window", {
