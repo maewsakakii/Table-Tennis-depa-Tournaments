@@ -21,7 +21,7 @@ Local Demo จะไม่เปิดเองอัตโนมัติ เ�
 ## Supabase setup
 
 1. สร้างโปรเจกต์ใหม่ใน Supabase
-2. เปิด **SQL Editor** แล้วรันไฟล์ migration ตามลำดับ `001`, `002`, `003`, `004`, `005`, `006` (ไฟล์ทั้งหมดรันซ้ำได้)
+2. เปิด **SQL Editor** แล้วรันไฟล์ migration ตามลำดับ `001`, `002`, `003`, `004`, `005`, `006`, `007` (ไฟล์ทั้งหมดรันซ้ำได้)
 3. ไปที่ **Authentication → Users → Add user → Create new user** แล้วกำหนดอีเมลและรหัสผ่านสำหรับผู้จัด
 4. เปิด SQL Editor แล้วเพิ่มอีเมลเดียวกันเป็นผู้ดูแล:
 
@@ -61,6 +61,8 @@ Migration จะสร้าง:
 
 หากพบ `function pg_catalog.coalesce(uuid[], uuid[]) does not exist` หรือเคยรัน migration 005 ไปแล้ว ให้รัน `supabase/migrations/006_simple_draw_launch.sql` ใน SQL Editor แล้วรีเฟรชหน้า `/admin` ไฟล์นี้แก้คำสั่งสุ่มโดยไม่กระทบรายชื่อเดิม เมื่อแอดมินกดสุ่ม ระบบจะปิดรับสมัคร สร้างคู่รอบแรก และเปิดให้ผู้เล่นกดดูคู่ของตัวเองทันทีในคำสั่งเดียว
 
+สำหรับสาย Knockout เต็มรูปแบบ การบันทึกคะแนน การเลื่อนผู้ชนะ และ Match History ให้รัน `supabase/migrations/007_full_knockout_bracket.sql` หลังไฟล์ 006 แล้วรีเฟรชเว็บ ไฟล์นี้รันซ้ำได้และจะไม่ลบรายชื่อผู้สมัครเดิม จากนั้นแอดมินต้องกด **สุ่มสายการแข่งขันใหม่** หนึ่งครั้ง เพราะคู่รอบแรกจากระบบเดิมจะไม่ถูกนำมาแปลงและผลการสุ่มอาจเปลี่ยน
+
 ผู้เล่นที่สมัครก่อน migration 003 จะยังไม่มี Recovery Code ให้แอดมินเปิดการ์ดผู้เล่นใน `/admin` แล้วเลือกออกรหัสใหม่ ส่งให้เจ้าตัวผ่านช่องทางส่วนตัว รหัสเดิม (ถ้ามี) จะใช้ไม่ได้ทันที
 
 ระบบปัจจุบันออกแบบสำหรับแคมเปญภายในองค์กร หากจะเผยแพร่ลิงก์สมัครสู่สาธารณะ ควรเพิ่ม CAPTCHA/rate limiting ที่ trusted server endpoint และตั้งงานลบไฟล์ค้างใน `player-avatars/pending/` ก่อนเปิดใช้งานจริง
@@ -86,5 +88,5 @@ npm run build
 ## Current scope
 
 - Phase 1: Registration + Lobby
-- Phase 2: Admin Control Room + Realtime Matchmaking Roulette พร้อมสายการแข่งขันรอบแรกทั้งหมดในหน้าแอดมิน
-- Phase 3 ต่อไป: Smart Knockout Bracket และการกระจาย BYE แบบสมดุล
+- Phase 2: Admin Control Room + Realtime Matchmaking Roulette ด้วยรูปผู้สมัครจริง
+- Phase 3: Smart Knockout Bracket ครบทุกรอบ, BYE แบบสมดุล, บันทึกคะแนน และ Match History

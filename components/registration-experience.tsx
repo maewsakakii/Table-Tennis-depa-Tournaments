@@ -3,6 +3,7 @@
 import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   ArrowRight,
+  ArrowLeft,
   Check,
   Copy,
   ImagePlus,
@@ -20,9 +21,13 @@ import {
 import Image from "next/image";
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
 import { MatchmakingRoulette } from "@/components/matchmaking-roulette";
+import { PlayerProfileSheet } from "@/components/player-profile-sheet";
+import { TournamentBracket } from "@/components/tournament-bracket";
+import { deriveMatchHistory } from "@/lib/bracket";
 import { isAcceptedAvatar } from "@/lib/local-avatar";
 import {
   getTournamentState,
+  getPlayerTournamentSnapshot,
   initialTournamentState,
   readPlayerIdentity,
   restoreSavedPlayerSession,
@@ -32,7 +37,7 @@ import {
   subscribeToTournamentState,
   toPublicPlayer,
 } from "@/lib/tournament-store";
-import type { Player, PlayerReveal, TournamentState } from "@/lib/types";
+import type { Player, PlayerReveal, PlayerTournamentSnapshot, PublicPlayer, TournamentState } from "@/lib/types";
 
 type FormState = Pick<Player, "nickname" | "department">;
 type Errors = Partial<Record<keyof FormState | "avatar", string>>;
@@ -58,6 +63,9 @@ export function RegistrationExperience() {
   const [revealLoading, setRevealLoading] = useState(false);
   const [lobbyError, setLobbyError] = useState("");
   const [backendError, setBackendError] = useState("");
+  const [playerSnapshot, setPlayerSnapshot] = useState<PlayerTournamentSnapshot | null>(null);
+  const [bracketOpen, setBracketOpen] = useState(false);
+  const [profileTarget, setProfileTarget] = useState<PublicPlayer | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const reduceMotion = useReducedMotion();
 
@@ -77,9 +85,28 @@ export function RegistrationExperience() {
   }, []);
 
   useEffect(() => {
+    if (!player || tournament.status !== "locked") return;
+    void getPlayerTournamentSnapshot().then(setPlayerSnapshot).catch((cause) => setLobbyError(cause instanceof Error ? cause.message : "โหลดสายการแข่งขันไม่สำเร็จ"));
+  }, [player, tournament.status, tournament.version, tournament.revealOpen]);
+
+  useEffect(() => {
+    if (!player) return;
+    const refreshBracket = () => { void getPlayerTournamentSnapshot().then(setPlayerSnapshot).catch(() => undefined); };
+    window.addEventListener("office-smash-bracket", refreshBracket);
+    return () => window.removeEventListener("office-smash-bracket", refreshBracket);
+  }, [player]);
+
+  useEffect(() => {
     void getTournamentState().then(setTournament).catch((cause) => setBackendError(cause instanceof Error ? cause.message : "ระบบออนไลน์ยังไม่พร้อมใช้งาน"));
-    return subscribeToTournamentState(setTournament);
-  }, []);
+    return subscribeToTournamentState((state) => {
+      setTournament(state);
+      if (state.status !== "locked") {
+        setPlayerSnapshot(null);
+      } else if (player) {
+        void getPlayerTournamentSnapshot().then(setPlayerSnapshot).catch(() => undefined);
+      }
+    });
+  }, [player]);
 
   function updateField(field: keyof FormState, value: string) {
     setForm((current) => ({ ...current, [field]: value }));
@@ -166,7 +193,11 @@ export function RegistrationExperience() {
   async function revealOpponent() {
     setRevealLoading(true);
     setLobbyError("");
-    try { setReveal(await revealMyOpponent()); }
+    try {
+      const [revealed, snapshot] = await Promise.all([revealMyOpponent(), getPlayerTournamentSnapshot()]);
+      setPlayerSnapshot(snapshot);
+      setReveal(revealed);
+    }
     catch (cause) { setLobbyError(cause instanceof Error ? cause.message : "เปิดผลจับคู่ไม่สำเร็จ"); }
     finally { setRevealLoading(false); }
   }
@@ -285,7 +316,7 @@ export function RegistrationExperience() {
             </section>}
           </motion.div>
         ) : player ? (
-          <Lobby key="lobby" player={player} tournament={tournament} recoveryCode={recoveryCode} revealLoading={revealLoading} error={lobbyError} onReveal={revealOpponent} reduceMotion={Boolean(reduceMotion)} />
+          <Lobby key="lobby" player={player} tournament={tournament} recoveryCode={recoveryCode} revealLoading={revealLoading} bracketReady={Boolean(playerSnapshot?.matches.length)} wins={playerSnapshot ? deriveMatchHistory(playerSnapshot, player.id).length : 0} passStatus={playerPassStatus(playerSnapshot, player.id)} error={lobbyError} onReveal={revealOpponent} onOpenBracket={() => setBracketOpen(true)} reduceMotion={Boolean(reduceMotion)} />
         ) : null}
       </AnimatePresence>
 
@@ -306,7 +337,9 @@ export function RegistrationExperience() {
       </AnimatePresence>
       <AnimatePresence>
         {restoreOpen && <RecoverySheet value={restoreCode} onChange={setRestoreCode} onClose={() => { setRestoreOpen(false); setSubmitError(""); }} onSubmit={restoreIdentity} loading={restoring} error={submitError} />}
-        {reveal && player && <MatchmakingRoulette player={toPublicPlayer(player)} reveal={reveal} onFinish={() => setReveal(null)} />}
+        {reveal && player && <MatchmakingRoulette player={toPublicPlayer(player)} reveal={reveal} candidates={playerSnapshot?.players ?? [toPublicPlayer(player), ...(reveal.opponent ? [reveal.opponent] : [])]} onSelectPlayer={(target) => { setReveal(null); setProfileTarget(target); }} onFinish={() => setReveal(null)} />}
+        {bracketOpen && playerSnapshot && <PlayerBracketView snapshot={playerSnapshot} onClose={() => setBracketOpen(false)} onSelectPlayer={setProfileTarget} />}
+        {profileTarget && playerSnapshot && <PlayerProfileSheet player={profileTarget} snapshot={playerSnapshot} onClose={() => setProfileTarget(null)} />}
       </AnimatePresence>
     </main>
   );
@@ -392,7 +425,7 @@ function ConfirmationSheet({
   );
 }
 
-function Lobby({ player, tournament, recoveryCode, revealLoading, error, onReveal, reduceMotion }: { player: Player; tournament: TournamentState; recoveryCode: string; revealLoading: boolean; error: string; onReveal: () => void; reduceMotion: boolean }) {
+function Lobby({ player, tournament, recoveryCode, revealLoading, bracketReady, wins, passStatus, error, onReveal, onOpenBracket, reduceMotion }: { player: Player; tournament: TournamentState; recoveryCode: string; revealLoading: boolean; bracketReady: boolean; wins: number; passStatus: string; error: string; onReveal: () => void; onOpenBracket: () => void; reduceMotion: boolean }) {
   const [copied, setCopied] = useState(false);
 
   async function copyCode() {
@@ -433,13 +466,13 @@ function Lobby({ player, tournament, recoveryCode, revealLoading, error, onRevea
           <span className="seed-badge">ROOKIE</span>
         </div>
         <div className="player-info">
-          <span className="player-status"><i /> WAITING IN LOBBY</span>
+          <span className="player-status"><i /> {passStatus}</span>
           <h2>{player.nickname}</h2>
           <p>{player.department}</p>
           <div className="player-meta">
             <div><span>PLAYER ID</span><b>{player.id}</b></div>
-            <div><span>WINS</span><b>0</b></div>
-            <div><span>STATUS</span><b>READY</b></div>
+            <div><span>WINS</span><b>{wins}</b></div>
+            <div><span>STATUS</span><b>{passStatus}</b></div>
           </div>
         </div>
         <div className="ticket-cut ticket-cut-left" /><div className="ticket-cut ticket-cut-right" />
@@ -450,9 +483,29 @@ function Lobby({ player, tournament, recoveryCode, revealLoading, error, onRevea
       <div className="lobby-message"><Sparkles size={19} /><div><b>{tournament.revealOpen ? "จับคู่แข่งขันเรียบร้อยแล้ว!" : tournament.status === "locked" ? "ปิดรับสมัครชั่วคราว" : "อยู่ใน Lobby แล้ว"}</b><span>{tournament.revealOpen ? "แอดมินสุ่มคู่แล้ว กดเพื่อดูคู่แข่งของคุณ" : tournament.status === "locked" ? "รอแอดมินกดสุ่มคู่แข่งขัน" : "รอแอดมินสุ่มคู่แข่งขัน"}</span></div></div>
       {error && <div className="lobby-error"><CircleAlertIcon />{error}</div>}
       {tournament.revealOpen ? <motion.button className="primary-button reveal-button" type="button" onClick={onReveal} disabled={revealLoading} whileTap={{ scale: .97 }}><Zap size={20} />{revealLoading ? "กำลังโหลดคู่ของคุณ..." : "สุ่มดูคู่แข่งของฉัน"}</motion.button> : <button className="secondary-button" type="button" disabled><LockKeyhole size={18} /> รอแอดมินสุ่มคู่</button>}
+      <button className="secondary-button bracket-cta" type="button" onClick={onOpenBracket} disabled={!bracketReady}><Trophy size={18} />{bracketReady ? "ดูสายการแข่งขัน" : "สายการแข่งขันยังไม่พร้อม"}</button>
       <div className="next-up"><span>NEXT UP</span><i /><b><Trophy size={16} /> MATCHMAKING ROULETTE</b></div>
     </motion.div>
   );
+}
+
+function playerPassStatus(snapshot: PlayerTournamentSnapshot | null, playerId: string) {
+  if (!snapshot?.matches.length) return "LOBBY";
+  const final = snapshot.matches.find((match) => match.round === snapshot.roundCount);
+  if (final?.status === "completed" && final.winnerId === playerId) return "CHAMPION";
+  if (snapshot.matches.some((match) => match.status === "completed" && match.winnerId !== playerId && (match.player1Id === playerId || match.player2Id === playerId))) return "ELIMINATED";
+  if (snapshot.matches.some((match) => (match.player1Id === playerId || match.player2Id === playerId) && (match.status === "ready" || match.status === "bye"))) return "READY";
+  return "WAITING";
+}
+
+function PlayerBracketView({ snapshot, onClose, onSelectPlayer }: { snapshot: PlayerTournamentSnapshot; onClose: () => void; onSelectPlayer: (player: PublicPlayer) => void }) {
+  const reduceMotion = useReducedMotion();
+  useEffect(() => {
+    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
+    window.addEventListener("keydown", closeOnEscape);
+    return () => window.removeEventListener("keydown", closeOnEscape);
+  }, [onClose]);
+  return <motion.section className="player-bracket-screen" role="dialog" aria-modal="true" aria-labelledby="player-bracket-title" initial={reduceMotion ? false : { opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={reduceMotion ? { opacity: 0 } : { opacity: 0, x: 24 }}><header><button type="button" onClick={onClose}><ArrowLeft size={19} /> Lobby</button><div><span>LIVE KNOCKOUT</span><h2 id="player-bracket-title">สายการแข่งขัน</h2></div><b>REV {snapshot.bracketRevision}</b></header><main><div className="player-path-note"><Sparkles size={17} /><div><b>เส้นทางของคุณไฮไลต์สีเขียว</b><span>ปัดซ้าย–ขวา หรือใช้ปุ่มเพื่อดูแต่ละรอบ</span></div></div><TournamentBracket snapshot={snapshot} currentPlayerId={snapshot.playerId} onSelectPlayer={onSelectPlayer} /></main></motion.section>;
 }
 
 function RegistrationClosed({ onRestore }: { onRestore: () => void }) {

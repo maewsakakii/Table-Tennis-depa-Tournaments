@@ -1,10 +1,13 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { ArrowLeft, CircleAlert, Copy, Eye, EyeOff, Gamepad2, KeyRound, LockKeyhole, LogOut, Pencil, Radio, RefreshCw, Shuffle, Sparkles, Trash2, UserPlus, Users, Wifi, X } from "lucide-react";
+import { ArrowLeft, CircleAlert, Copy, Eye, EyeOff, Gamepad2, KeyRound, LockKeyhole, LogOut, Pencil, Radio, RefreshCw, Shuffle, Sparkles, Trash2, Trophy, UserPlus, Users, Wifi, X } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
+import { PlayerProfileSheet } from "@/components/player-profile-sheet";
+import { ScoreEntrySheet } from "@/components/score-entry-sheet";
+import { TournamentBracket } from "@/components/tournament-bracket";
 import {
   adminSignIn,
   adminSignOut,
@@ -13,17 +16,18 @@ import {
   adminFillDemoPlayers,
   adminUpdatePlayerProfile,
   type AdminSessionState,
-  generateHiddenAssignments,
-  getAdminDraw,
+  generateTournamentBracket,
   getAdminSession,
+  getAdminTournamentSnapshot,
   getAllPlayers,
   getTournamentState,
   initialTournamentState,
   onlineModeLabel,
+  recordMatchScore,
   subscribeToTournamentState,
   updateTournamentControls,
 } from "@/lib/tournament-store";
-import type { AdminDraw, Player, TournamentState } from "@/lib/types";
+import type { BracketMatch, Player, PublicPlayer, TournamentSnapshot, TournamentState } from "@/lib/types";
 import styles from "./admin-experience.module.css";
 
 export function AdminExperience() {
@@ -65,7 +69,7 @@ function AdminLogin({ onSuccess }: { onSuccess: () => void }) {
 function AdminDashboard({ demo, onSignOut }: { demo: boolean; onSignOut: () => void }) {
   const [players, setPlayers] = useState<Player[]>([]);
   const [tournament, setTournament] = useState<TournamentState>(initialTournamentState);
-  const [draw, setDraw] = useState<AdminDraw>({ version: 0, pairs: [] });
+  const [snapshot, setSnapshot] = useState<TournamentSnapshot>({ version: 0, bracketRevision: 0, roundCount: 0, matches: [], players: [] });
   const [loading, setLoading] = useState(true);
   const [mutating, setMutating] = useState(false);
   const [error, setError] = useState("");
@@ -77,22 +81,31 @@ function AdminDashboard({ demo, onSignOut }: { demo: boolean; onSignOut: () => v
   const [editTarget, setEditTarget] = useState<Player | null>(null);
   const [editError, setEditError] = useState("");
   const [editing, setEditing] = useState(false);
+  const [scoreTarget, setScoreTarget] = useState<BracketMatch | null>(null);
+  const [profileTarget, setProfileTarget] = useState<PublicPlayer | null>(null);
 
   const loadData = useCallback(async () => {
     setLoading(true); setError("");
     try {
       const [loadedPlayers, loadedState] = await Promise.all([getAllPlayers(), getTournamentState()]);
       setPlayers(loadedPlayers); setTournament(loadedState);
-      if (loadedState.status === "locked") setDraw(await getAdminDraw(loadedState.version));
-      else setDraw({ version: loadedState.version, pairs: [] });
+      if (loadedState.status === "locked") setSnapshot(await getAdminTournamentSnapshot());
+      else setSnapshot({ version: loadedState.version, bracketRevision: 0, roundCount: 0, matches: [], players: [] });
     } catch (cause) { setError(cause instanceof Error ? cause.message : "โหลดข้อมูลไม่สำเร็จ"); }
     finally { setLoading(false); }
   }, []);
 
   useEffect(() => { const timer = window.setTimeout(() => { void loadData(); }, 0); return () => window.clearTimeout(timer); }, [loadData]);
-  useEffect(() => subscribeToTournamentState((state) => { setTournament(state); if (state.status === "locked") void getAdminDraw(state.version).then(setDraw).catch(() => undefined); }), []);
-
-  const playerMap = useMemo(() => new Map(players.map((player) => [player.id, player])), [players]);
+  useEffect(() => subscribeToTournamentState((state) => {
+    setTournament(state);
+    if (state.status === "locked") void getAdminTournamentSnapshot().then(setSnapshot).catch((cause) => setError(cause instanceof Error ? cause.message : "โหลดสายการแข่งขันไม่สำเร็จ"));
+    else setSnapshot({ version: state.version, bracketRevision: 0, roundCount: 0, matches: [], players: [] });
+  }), []);
+  useEffect(() => {
+    const refreshBracket = () => { void getAdminTournamentSnapshot().then(setSnapshot).catch(() => undefined); };
+    window.addEventListener("office-smash-bracket", refreshBracket);
+    return () => window.removeEventListener("office-smash-bracket", refreshBracket);
+  }, []);
 
   async function mutate(action: () => Promise<unknown>) {
     setMutating(true); setError("");
@@ -145,6 +158,13 @@ function AdminDashboard({ demo, onSignOut }: { demo: boolean; onSignOut: () => v
     }
   }
 
+  async function saveScore(score1: number, score2: number) {
+    if (!scoreTarget) return;
+    const updated = await recordMatchScore(scoreTarget.id, score1, score2, scoreTarget.revision);
+    setSnapshot(updated);
+    setScoreTarget(null);
+  }
+
   return <main className={styles.dashboard}>
     <header className={styles.topbar}><div className={styles.adminBrand}><span><Gamepad2 size={20} /></span><div><b>depa TABLE TENNIS</b><small>CONTROL ROOM · 2026</small></div></div><div className={styles.topActions}><Link href="/" aria-label="หน้าผู้เล่น"><ArrowLeft size={18} /></Link><button onClick={signOut} aria-label="ออกจากระบบ"><LogOut size={18} /></button></div></header>
     <div className={styles.dashboardBody}>
@@ -155,26 +175,24 @@ function AdminDashboard({ demo, onSignOut }: { demo: boolean; onSignOut: () => v
 
       <section className={styles.controlPanel}><div className={styles.sectionHead}><div><span>EVENT CONTROLS</span><h2>ตั้งค่าสถานะการแข่งขัน</h2></div><Radio size={20} /></div>
         <ControlToggle title="เปิดรับลงทะเบียน" description={tournament.status === "locked" ? "หากเปิดเพิ่ม ต้องสุ่มและล็อกคู่ใหม่เพื่อรวมผู้เล่นล่าสุด" : "ปิดก่อนสุ่มเพื่อไม่ให้รายชื่อเปลี่ยนระหว่างจัดคู่"} checked={tournament.registrationOpen} disabled={mutating} onChange={(checked) => void mutate(() => updateTournamentControls({ registrationOpen: checked, ...(checked ? { revealOpen: false } : {}) }))} />
-        <div className={styles.drawVisual}><Shuffle size={31} /><div><b>{draw.pairs.length ? `รอบที่ 1 พร้อมแล้ว ${draw.pairs.length} คู่` : "ยังไม่ได้สุ่มคู่แข่งขัน"}</b><span>{draw.pairs.length ? "ผู้เล่นกดสุ่มดูคู่ของตัวเองได้ทันที" : "เมื่อกดสุ่ม ระบบจะปิดรับสมัครและเปิดให้ผู้เล่นดูคู่ทันที"}</span></div></div>
-        <button className={styles.drawButton} onClick={() => void mutate(generateHiddenAssignments)} disabled={players.length < 2 || mutating || loading}><Shuffle size={19} />{mutating ? "กำลังสุ่มและบันทึก..." : draw.pairs.length ? "สุ่มคู่แข่งขันใหม่และเปิดให้ดู" : "สุ่มคู่แข่งขันและเปิดให้ดู"}</button>
+        <div className={styles.drawVisual}><Shuffle size={31} /><div><b>{snapshot.matches.length ? `สายเต็ม ${snapshot.roundCount} รอบพร้อมแล้ว` : "ยังไม่ได้สุ่มคู่แข่งขัน"}</b><span>{snapshot.matches.length ? "ผู้เล่นกดสุ่มดูคู่ของตัวเองได้ทันที · แอดมินแตะคู่เพื่อกรอกคะแนน" : "เมื่อกดสุ่ม ระบบจะปิดรับสมัครและเปิดให้ผู้เล่นดูคู่ทันที"}</span></div></div>
+        <button className={styles.drawButton} onClick={() => void mutate(generateTournamentBracket)} disabled={players.length < 2 || mutating || loading}><Shuffle size={19} />{mutating ? "กำลังสุ่มและสร้างสาย..." : snapshot.matches.length ? "สุ่มคู่แข่งขันใหม่และเปิดให้ดู" : "สุ่มคู่แข่งขันและเปิดให้ดู"}</button>
         {players.length < 2 && <p className={styles.drawHint}>ต้องมีผู้เล่นอย่างน้อย 2 คนเพื่อเริ่มจับคู่</p>}
       </section>
 
-      {draw.pairs.length > 0 && <PairSummary draw={draw} playerMap={playerMap} />}
+      {snapshot.matches.length > 0 && <section className={styles.bracketPanel}><div className={styles.sectionHead}><div><span>LIVE BRACKET · REV {snapshot.bracketRevision}</span><h2>สายการแข่งขันรอบที่ 1 ทั้งหมดและรอบถัดไป</h2></div><Trophy size={20} /></div><p className={styles.privateNote}><LockKeyhole size={14} /> แตะคู่ที่พร้อมแข่งเพื่อกรอกหรือแก้ไขคะแนน</p><TournamentBracket snapshot={snapshot} admin onSelectMatch={setScoreTarget} onSelectPlayer={setProfileTarget} /></section>}
       <section className={styles.rosterPanel}><div className={styles.rosterHead}><div><span>PLAYER ROSTER</span><h2>ผู้สมัครทั้งหมด <i>{players.length}</i></h2></div><button onClick={loadData} disabled={loading} aria-label="โหลดรายชื่อใหม่"><RefreshCw size={17} className={loading ? styles.spinning : ""} /></button></div><button className={styles.demoAdd} onClick={() => void mutate(adminFillDemoPlayers)} disabled={mutating || demoCount >= 10}><UserPlus size={17} />{demoCount >= 10 ? "ผู้เล่น Demo ครบ 10 คนแล้ว" : `เติมผู้เล่น Demo ให้ครบ 10 คน (${demoCount}/10)`}</button>{players.length ? <div className={styles.playerList}>{players.map((player, index) => <PlayerRow player={player} index={index} key={player.id} onEdit={() => { setEditTarget(player); setEditError(""); }} onIssueRecovery={() => { setRecoveryTarget(player); setIssuedRecovery(null); }} onDelete={() => { setDeleteTarget(player); setDeleteError(""); }} />)}</div> : <div className={styles.emptyRoster}><Users size={30} /><b>ยังไม่มีผู้สมัคร</b><span>รายชื่อจะปรากฏหลังมีผู้เล่นลงทะเบียน</span></div>}</section>
     </div>
     {recoveryTarget && <AdminRecoverySheet player={recoveryTarget} issued={issuedRecovery} loading={issuingRecovery} onIssue={() => void issueRecoveryCode()} onClose={closeRecoverySheet} />}
     {deleteTarget && <AdminDeleteSheet player={deleteTarget} loading={mutating} error={deleteError} onDelete={() => void confirmDeletePlayer()} onClose={() => { setDeleteTarget(null); setDeleteError(""); }} />}
     {editTarget && <AdminEditPlayerSheet key={editTarget.id} player={editTarget} loading={editing} error={editError} onSave={(input) => void savePlayerProfile(input)} onClose={() => { setEditTarget(null); setEditError(""); }} />}
+    {scoreTarget && <ScoreEntrySheet key={`${scoreTarget.id}-${scoreTarget.revision}`} match={scoreTarget} players={snapshot.players} onSave={saveScore} onClose={() => setScoreTarget(null)} />}
+    {profileTarget && <PlayerProfileSheet player={profileTarget} snapshot={snapshot} onClose={() => setProfileTarget(null)} />}
   </main>;
 }
 
 function ControlToggle({ title, description, checked, disabled, onChange }: { title: string; description: string; checked: boolean; disabled: boolean; onChange: (checked: boolean) => void }) {
   return <label className={`${styles.controlToggle} ${disabled ? styles.controlToggleDisabled : ""}`}><div><b>{title}</b><span>{description}</span></div><input className={styles.toggleInput} type="checkbox" checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} /><span className={`${styles.switch} ${checked ? styles.switchOn : ""}`} aria-hidden="true"><i /></span></label>;
-}
-
-function PairSummary({ draw, playerMap }: { draw: AdminDraw; playerMap: Map<string, Player> }) {
-  return <section className={styles.pairPanel}><div className={styles.sectionHead}><div><span>ADMIN ONLY · DRAW V{draw.version}</span><h2>สายการแข่งขันรอบที่ 1 ทั้งหมด</h2></div><Eye size={20} /></div><p className={styles.privateNote}><LockKeyhole size={14} /> ผู้เล่นแต่ละคนเห็นได้เฉพาะคู่ของตัวเองผ่านแอนิเมชัน</p><div className={styles.pairList}>{draw.pairs.map((pair, index) => { const first = playerMap.get(pair.player1Id); const second = pair.player2Id ? playerMap.get(pair.player2Id) : null; return <div className={styles.pairRow} key={pair.id}><small>{String(index + 1).padStart(2, "0")}</small><span>{first?.nickname ?? pair.player1Id}</span><b>{second ? "VS" : "BYE"}</b><span>{second?.nickname ?? "ชนะบาย"}</span></div>; })}</div></section>;
 }
 
 function PlayerRow({ player, index, onEdit, onIssueRecovery, onDelete }: { player: Player; index: number; onEdit: () => void; onIssueRecovery: () => void; onDelete: () => void }) { return <article className={styles.playerRow}><small>{String(index + 1).padStart(2, "0")}</small><div className={styles.rowAvatar}><Image src={player.avatarUrl} alt="" fill unoptimized /></div><div className={styles.playerName}><div><b>{player.nickname}</b>{player.isDemo && <i>DEMO</i>}</div><span>{player.id} · {player.department}</span></div><div className={styles.rowActions}><button className={styles.editAction} type="button" onClick={onEdit} aria-label={`แก้ไขข้อมูล ${player.nickname}`}><Pencil size={16} /><span>แก้ไข</span></button><button className={styles.recoveryAction} type="button" onClick={onIssueRecovery} aria-label={`ออกรหัสกู้คืนใหม่ให้ ${player.nickname}`}><KeyRound size={16} /><span>รหัส</span></button><button className={styles.deleteAction} type="button" onClick={onDelete} aria-label={`ลบ ${player.nickname}`}><Trash2 size={17} /></button></div></article>; }
