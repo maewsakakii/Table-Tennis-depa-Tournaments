@@ -3,16 +3,20 @@
 import { generateRecoveryCode, nextPublicPlayerId, normalizeRecoveryCode } from "./player-identity.ts";
 import type {
   AdminDraw,
-  HiddenMatchPair,
+  BracketMatch,
+  KnockoutBracket,
   Player,
   PlayerIdentity,
   PlayerRegistration,
   PlayerReveal,
+  PlayerTournamentSnapshot,
   PublicPlayer,
+  TournamentSnapshot,
   TournamentState,
 } from "./types.ts";
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "./supabase.ts";
 import { compressAvatarForLocalStorage } from "./local-avatar.ts";
+import { generateKnockoutBracket, recordBracketScore } from "./bracket.ts";
 
 export const PLAYER_STORAGE_KEY = "office-smash-player";
 const PLAYERS_STORAGE_KEY = "office-smash-players";
@@ -413,42 +417,110 @@ function shuffleIds(ids: string[]) {
   return shuffled;
 }
 
+function emptyBracket(version = 0): KnockoutBracket {
+  return { version, bracketRevision: 0, roundCount: 0, matches: [] };
+}
+
+function readLocalBracket(expectedVersion = 0): KnockoutBracket {
+  try {
+    const stored = JSON.parse(window.localStorage.getItem(DRAW_STORAGE_KEY) ?? "null") as KnockoutBracket | null;
+    return stored?.matches ? stored : emptyBracket(expectedVersion);
+  } catch { return emptyBracket(expectedVersion); }
+}
+
+function writeLocalBracket(bracket: KnockoutBracket) {
+  const serialized = JSON.stringify(bracket);
+  // This payload deliberately contains IDs, topology and scores only—never avatars.
+  if (/avatar|data:image/i.test(serialized)) throw new Error("ข้อมูลสายการแข่งขันมีรูปภาพที่ไม่ควรถูกจัดเก็บ");
+  try { window.localStorage.setItem(DRAW_STORAGE_KEY, serialized); }
+  catch (cause) {
+    if (isQuotaExceededError(cause)) throw new Error("พื้นที่จัดเก็บไม่พอสำหรับบันทึกผลจับคู่และสายการแข่งขัน กรุณาล้างข้อมูล Local Demo แล้วลองอีกครั้ง");
+    throw cause;
+  }
+}
+
+function legacyDrawFromBracket(bracket: KnockoutBracket): AdminDraw {
+  const firstRound = bracket.matches.filter((match) => match.round === 1);
+  const placed = [
+    ...firstRound.filter((match) => match.player1Id && match.player2Id)
+      .flatMap((match) => [match.player1Id!, match.player2Id!]),
+    ...firstRound.filter((match) => match.status === "bye").map((match) => match.winnerId!),
+  ];
+  return { version: bracket.version, pairs: Array.from({ length: Math.ceil(placed.length / 2) }, (_, index) => ({
+    id: `legacy-${bracket.version}-${index}`, player1Id: placed[index * 2], player2Id: placed[index * 2 + 1] ?? null,
+  })) };
+}
+
+function mapBracketMatch(row: Record<string, unknown>): BracketMatch {
+  return {
+    id: String(row.id ?? row.match_id),
+    version: Number(row.version ?? row.draw_version),
+    round: Number(row.round ?? row.round_number),
+    position: Number(row.position ?? row.match_position),
+    player1Id: row.player1Id ? String(row.player1Id) : row.player1_public_id ? String(row.player1_public_id) : null,
+    player2Id: row.player2Id ? String(row.player2Id) : row.player2_public_id ? String(row.player2_public_id) : null,
+    source1MatchId: row.source1MatchId ? String(row.source1MatchId) : row.source1_match_id ? String(row.source1_match_id) : null,
+    source2MatchId: row.source2MatchId ? String(row.source2MatchId) : row.source2_match_id ? String(row.source2_match_id) : null,
+    nextMatchId: row.nextMatchId ? String(row.nextMatchId) : row.next_match_id ? String(row.next_match_id) : null,
+    nextSlot: (row.nextSlot ?? row.next_slot) == null ? null : Number(row.nextSlot ?? row.next_slot) as 1 | 2,
+    score1: (row.score1 ?? row.score_player1) == null ? null : Number(row.score1 ?? row.score_player1),
+    score2: (row.score2 ?? row.score_player2) == null ? null : Number(row.score2 ?? row.score_player2),
+    winnerId: row.winnerId ? String(row.winnerId) : row.winner_public_id ? String(row.winner_public_id) : null,
+    status: String(row.status) as BracketMatch["status"],
+    revision: Number(row.revision ?? 0),
+  };
+}
+
+function mapSnapshotPayload(payload: unknown): TournamentSnapshot {
+  const row = (Array.isArray(payload) ? payload[0] : payload) as Record<string, unknown> | null;
+  if (!row) return { ...emptyBracket(), players: [] };
+  const players = (row.players ?? []) as Record<string, unknown>[];
+  const matches = (row.matches ?? []) as Record<string, unknown>[];
+  return {
+    version: Number(row.version ?? row.draw_version ?? 0),
+    bracketRevision: Number(row.bracketRevision ?? row.bracket_revision ?? 0),
+    roundCount: Number(row.roundCount ?? row.round_count ?? 0),
+    players: players.map((player) => ({
+      id: String(player.id ?? player.public_id), nickname: String(player.nickname),
+      department: String(player.department), avatarUrl: String(player.avatarUrl ?? player.avatar_url),
+    })),
+    matches: matches.map(mapBracketMatch),
+  };
+}
+
+/** Creates the complete, compact knockout tree. UI animation must reveal this server result, never re-roll it. */
+export async function generateTournamentBracket(): Promise<TournamentSnapshot> {
+  const supabase = getSupabaseBrowserClient();
+  if (supabase) {
+    const { error } = await supabase.rpc("admin_generate_hidden_draw");
+    if (error) throw new Error(error.message);
+    return getAdminTournamentSnapshot();
+  }
+  assertAvailableBackend();
+  const players = readLocalPlayers();
+  const current = await getTournamentState();
+  const bracket = generateKnockoutBracket(players.map((player) => player.id), current.version + 1, shuffleIds);
+  const previousDraw = window.localStorage.getItem(DRAW_STORAGE_KEY);
+  try {
+    await saveTournamentState({
+      version: bracket.version, status: "locked", registrationOpen: false,
+      revealOpen: true, startedAt: new Date().toISOString(),
+    });
+    writeLocalBracket(bracket);
+  } catch (cause) {
+    restoreStorageValue(DRAW_STORAGE_KEY, previousDraw);
+    // Keep the small pre-draw state rather than attempting to restore legacy avatar-heavy JSON.
+    try { await saveTournamentState(current); } catch { /* preserve the actionable original failure */ }
+    throw cause;
+  }
+  return { ...bracket, players: players.map(toPublicPlayer) };
+}
+
 export async function generateHiddenAssignments(): Promise<AdminDraw> {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) {
-    assertAvailableBackend();
-    const ids = shuffleIds(readLocalPlayers().map((player) => player.id));
-    const current = await getTournamentState();
-    const version = current.version + 1;
-    const pairs: HiddenMatchPair[] = [];
-    for (let index = 0; index < ids.length; index += 2) {
-      pairs.push({ id: crypto.randomUUID(), player1Id: ids[index], player2Id: ids[index + 1] ?? null });
-    }
-    const draw = { version, pairs };
-    const nextState: TournamentState = {
-      version,
-      status: "locked",
-      registrationOpen: false,
-      revealOpen: true,
-      startedAt: new Date().toISOString(),
-    };
-    // Replace legacy avatar-heavy public state before writing even the small hidden draw.
-    await saveTournamentState(nextState);
-    const serializedDraw = JSON.stringify(draw);
-    try {
-      window.localStorage.setItem(DRAW_STORAGE_KEY, serializedDraw);
-    } catch (cause) {
-      if (!isQuotaExceededError(cause)) throw cause;
-      window.localStorage.removeItem(DRAW_STORAGE_KEY);
-      try {
-        window.localStorage.setItem(DRAW_STORAGE_KEY, serializedDraw);
-      } catch (retryCause) {
-        await saveTournamentState(current);
-        if (!isQuotaExceededError(retryCause)) throw retryCause;
-        throw new Error("พื้นที่จัดเก็บไม่พอสำหรับบันทึกผลจับคู่ กรุณาล้างข้อมูล Local Demo แล้วลองอีกครั้ง");
-      }
-    }
-    return draw;
+    const snapshot = await generateTournamentBracket();
+    return legacyDrawFromBracket(snapshot);
   }
   const { data, error } = await supabase.rpc("admin_generate_hidden_draw");
   if (error) throw new Error(error.message);
@@ -461,8 +533,9 @@ export async function getAdminDraw(expectedVersion?: number): Promise<AdminDraw>
   if (!supabase) {
     assertAvailableBackend();
     try {
-      const draw = JSON.parse(window.localStorage.getItem(DRAW_STORAGE_KEY) ?? "null") as AdminDraw | null;
-      return draw ?? { version: expectedVersion ?? 0, pairs: [] };
+      const stored = JSON.parse(window.localStorage.getItem(DRAW_STORAGE_KEY) ?? "null") as AdminDraw | KnockoutBracket | null;
+      if (stored && "matches" in stored) return legacyDrawFromBracket(stored);
+      return stored ?? { version: expectedVersion ?? 0, pairs: [] };
     } catch { return { version: expectedVersion ?? 0, pairs: [] }; }
   }
   const { data, error } = await supabase.rpc("admin_get_hidden_draw");
@@ -476,6 +549,77 @@ export async function getAdminDraw(expectedVersion?: number): Promise<AdminDraw>
       player2Id: row.player2_public_id ? String(row.player2_public_id) : null,
     })),
   };
+}
+
+export async function getAdminTournamentSnapshot(): Promise<TournamentSnapshot> {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) {
+    assertAvailableBackend();
+    const bracket = readLocalBracket((await getTournamentState()).version);
+    return { ...bracket, players: readLocalPlayers().map(toPublicPlayer) };
+  }
+  const { data, error } = await supabase.rpc("admin_get_tournament_snapshot");
+  if (error) throw new Error(error.message);
+  return mapSnapshotPayload(data);
+}
+
+export async function getPlayerTournamentSnapshot(): Promise<PlayerTournamentSnapshot> {
+  const identity = readPlayerIdentity();
+  if (!identity) throw new Error("ไม่พบสิทธิ์ผู้เล่นในเครื่องนี้ กรุณาใช้รหัสกู้คืน");
+  const supabase = getSupabaseBrowserClient();
+  let snapshot: TournamentSnapshot;
+  if (!supabase) {
+    assertAvailableBackend();
+    const recoveryMap = readLocalRecoveryMap();
+    const session = parseStoredSession(window.localStorage.getItem(PLAYER_STORAGE_KEY));
+    if (session?.recoveryCode !== identity.recoveryCode && recoveryMap[identity.playerId] !== identity.recoveryCode) {
+      throw new Error("invalid player identity");
+    }
+    snapshot = await getAdminTournamentSnapshot();
+  } else {
+    const { data, error } = await supabase.rpc("get_player_tournament_snapshot", {
+      p_public_id: identity.playerId, p_identity_token: identity.recoveryCode,
+    });
+    if (error) throw new Error(error.message);
+    snapshot = mapSnapshotPayload(data);
+  }
+  const latest = snapshot.matches
+    .filter((match) => match.player1Id === identity.playerId || match.player2Id === identity.playerId)
+    .sort((left, right) => right.round - left.round)[0] ?? null;
+  const current = latest?.status === "ready" || latest?.status === "bye"
+    ? latest
+    : latest?.status === "waiting"
+      ? snapshot.matches
+        .filter((match) => match.status === "bye" && (match.player1Id === identity.playerId || match.player2Id === identity.playerId))
+        .sort((left, right) => right.round - left.round)[0] ?? null
+      : null;
+  const opponentId = current
+    ? current.player1Id === identity.playerId ? current.player2Id : current.player1Id
+    : null;
+  return {
+    ...snapshot, playerId: identity.playerId, currentMatchId: current?.id ?? null,
+    currentOpponentId: opponentId, bye: current?.status === "bye",
+  };
+}
+
+export async function recordMatchScore(
+  matchId: string, score1: number, score2: number, expectedRevision: number,
+): Promise<TournamentSnapshot> {
+  const supabase = getSupabaseBrowserClient();
+  if (supabase) {
+    const { error } = await supabase.rpc("admin_record_match_score", {
+      p_match_id: matchId, p_score_player1: score1, p_score_player2: score2,
+      p_expected_revision: expectedRevision,
+    });
+    if (error) throw new Error(error.message);
+    return getAdminTournamentSnapshot();
+  }
+  assertAvailableBackend();
+  const before = readLocalBracket((await getTournamentState()).version);
+  const updated = recordBracketScore(before, matchId, score1, score2, expectedRevision);
+  writeLocalBracket(updated);
+  window.dispatchEvent(new CustomEvent("office-smash-bracket", { detail: updated }));
+  return { ...updated, players: readLocalPlayers().map(toPublicPlayer) };
 }
 
 export async function updateTournamentControls(changes: Partial<Pick<TournamentState, "registrationOpen" | "revealOpen">>) {
@@ -746,12 +890,14 @@ export async function revealMyOpponent(): Promise<PlayerReveal> {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) {
     assertAvailableBackend();
-    const draw = await getAdminDraw(state.version);
-    const pair = draw.pairs.find((item) => item.player1Id === identity.playerId || item.player2Id === identity.playerId);
+    const bracket = readLocalBracket(state.version);
+    const pair = bracket.matches.filter((item) => item.player1Id === identity.playerId || item.player2Id === identity.playerId)
+      .filter((item) => item.status === "ready" || item.status === "bye")
+      .sort((left, right) => right.round - left.round)[0];
     if (!pair) throw new Error("ยังไม่พบคู่แข่งขันของคุณ");
     const opponentId = pair.player1Id === identity.playerId ? pair.player2Id : pair.player1Id;
     const opponent = opponentId ? readLocalPlayers().find((player) => player.id === opponentId) ?? null : null;
-    return { matchId: pair.id, playerId: identity.playerId, opponent: opponent ? toPublicPlayer(opponent) : null, bye: !opponentId };
+    return { matchId: pair.id, playerId: identity.playerId, opponent: opponent ? toPublicPlayer(opponent) : null, bye: pair.status === "bye" };
   }
   const { data, error } = await supabase.rpc("reveal_my_opponent", {
     p_public_id: identity.playerId,

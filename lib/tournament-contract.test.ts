@@ -9,7 +9,10 @@ import {
   adminIssuePlayerRecoveryCode,
   adminUpdatePlayerProfile,
   generateHiddenAssignments,
+  generateTournamentBracket,
   getAdminDraw,
+  getAdminTournamentSnapshot,
+  getPlayerTournamentSnapshot,
   getAdminSession,
   getAllPlayers,
   getTournamentState,
@@ -21,6 +24,7 @@ import {
   parseSupabaseAvatarPath,
   PLAYER_STORAGE_KEY,
   revealMyOpponent,
+  recordMatchScore,
   restorePlayerWithRecoveryCode,
   saveLocalPlayer,
   saveTournamentState,
@@ -479,6 +483,68 @@ test("safe-update migrations never issue a bare private match delete and expose 
   assert.match(simpleDrawSql, /grant execute on function public\.admin_generate_hidden_draw\(\) to authenticated/i);
 });
 
+test("full bracket migration is rerunnable, private, authorized, and safe-update compatible", () => {
+  const sql = readFileSync(new URL("../supabase/migrations/007_full_knockout_bracket.sql", import.meta.url), "utf8");
+  assert.match(sql, /create table if not exists public\.bracket_matches/i);
+  assert.match(sql, /next_match_id[\s\S]*next_slot/i);
+  assert.match(sql, /bracket_revision/i);
+  assert.match(sql, /create or replace function public\.admin_generate_hidden_draw/i);
+  assert.match(sql, /create or replace function public\.admin_record_match_score/i);
+  assert.match(sql, /admin_record_match_score[\s\S]*is_tournament_admin[\s\S]*for update/i);
+  assert.match(sql, /expected_revision/i);
+  assert.match(sql, /score_player1[\s\S]*between 0 and 99/i);
+  assert.match(sql, /p_expected_revision is null/i);
+  assert.match(sql, /p_score_player1 is null[\s\S]*p_score_player2 is null/i);
+  assert.match(sql, /revision\s*=\s*bm\.revision\s*\+\s*1/i);
+  assert.match(sql, /status\s*=\s*'ready'[\s\S]*player1_id is not null[\s\S]*player2_id is not null/i);
+  assert.match(sql, /create or replace function public\.get_player_tournament_snapshot/i);
+  assert.match(sql, /get_player_tournament_snapshot[\s\S]*identity_hash[\s\S]*extensions\.digest/i);
+  assert.doesNotMatch(sql, /get_player_tournament_snapshot[\s\S]*\bemail\b/i);
+  assert.doesNotMatch(sql, /delete\s+from\s+public\.(?:private_matches|bracket_matches)\s*;/i);
+  assert.match(sql, /revoke all on table public\.bracket_matches from public, anon, authenticated/i);
+  assert.match(sql, /revoke all on function public\.admin_record_match_score/i);
+  assert.match(sql, /grant execute on function public\.admin_record_match_score[\s\S]*to authenticated/i);
+  assert.match(sql, /reveal_my_opponent[\s\S]*selected_match\.id is null or selected_match\.status not in \('ready','bye'\)/i);
+});
+
+test("local full bracket persistence is compact and player snapshots are recovery-gated", async () => {
+  const storage = new MemoryStorage();
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: { localStorage: storage, dispatchEvent() {}, addEventListener() {}, removeEventListener() {} },
+  });
+  process.env.NEXT_PUBLIC_ENABLE_LOCAL_DEMO = "true";
+  const players = await adminFillDemoPlayers();
+  const issued = await adminIssuePlayerRecoveryCode(players[0].id);
+  await restorePlayerWithRecoveryCode(issued.recoveryCode);
+  const generated = await generateTournamentBracket();
+  assert.equal(generated.matches.length, 15);
+  assert.doesNotMatch(storage.getItem("office-smash-hidden-draw") ?? "", /avatar|data:image/i);
+  assert.deepEqual(await getAdminTournamentSnapshot(), generated);
+  const playerView = await getPlayerTournamentSnapshot();
+  assert.equal(playerView.playerId, players[0].id);
+  assert.ok(playerView.currentMatchId);
+  delete process.env.NEXT_PUBLIC_ENABLE_LOCAL_DEMO;
+});
+
+test("local score recording advances the winner and enforces expected revision", async () => {
+  const storage = new MemoryStorage();
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: { localStorage: storage, dispatchEvent() {}, addEventListener() {}, removeEventListener() {} },
+  });
+  process.env.NEXT_PUBLIC_ENABLE_LOCAL_DEMO = "true";
+  await adminFillDemoPlayers();
+  const generated = await generateTournamentBracket();
+  const ready = generated.matches.find((match) => match.round === 1 && match.status === "ready")!;
+  const scored = await recordMatchScore(ready.id, 11, 8, ready.revision);
+  const completed = scored.matches.find((match) => match.id === ready.id)!;
+  assert.equal(completed.status, "completed");
+  assert.equal(completed.winnerId, ready.player1Id);
+  await assert.rejects(() => recordMatchScore(ready.id, 11, 9, ready.revision), /stale/i);
+  delete process.env.NEXT_PUBLIC_ENABLE_LOCAL_DEMO;
+});
+
 test("editing a local player profile is atomic and preserves the locked draw", async () => {
   const storage = new MemoryStorage();
   Object.defineProperty(globalThis, "window", {
@@ -551,4 +617,6 @@ test("admin roster UI keeps demo tools visible, warns before delete, and omits t
   assert.match(registrationUi, /แอดมินสุ่มคู่แล้ว กดเพื่อดูคู่แข่งของคุณ/);
   assert.doesNotMatch(registrationUi, /ผลยังเป็นความลับ รอแอดมินเปิดสัญญาณ/);
   assert.match(registrationUi, /restoreSavedPlayerSession/);
+  assert.match(registrationUi, /subscribeToTournamentState[\s\S]*getPlayerTournamentSnapshot\(\)\.then\(setPlayerSnapshot\)/);
+  assert.doesNotMatch(registrationUi, /<span>WINS<\/span><b>0<\/b>/);
 });
