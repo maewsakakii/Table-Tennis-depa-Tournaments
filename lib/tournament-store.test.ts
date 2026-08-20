@@ -45,6 +45,26 @@ test("local registration does not duplicate a large mobile avatar across storage
   assert.deepEqual(readSavedPlayer(), player);
 });
 
+test("recovery identity stays compact and does not duplicate a local avatar", () => {
+  const storage = new QuotaStorage(5_000_000);
+  Object.defineProperty(globalThis, "window", { configurable: true, value: { localStorage: storage } });
+  const player: Player = {
+    id: "DT-01",
+    nickname: "ตัวตึง",
+    department: "Digital",
+    avatarUrl: `data:image/jpeg;base64,${"r".repeat(3_000_000)}`,
+    registeredAt: "2026-08-20T00:00:00.000Z",
+    status: "waiting",
+  };
+
+  assert.doesNotThrow(() => saveLocalPlayer(player, "DT-AAAA-BBBB-CCCC-DDDD-EEEE-FFFF"));
+  assert.equal(storage.getItem(PLAYER_STORAGE_KEY), JSON.stringify({
+    playerId: "DT-01",
+    recoveryCode: "DT-AAAA-BBBB-CCCC-DDDD-EEEE-FFFF",
+  }));
+  assert.deepEqual(readSavedPlayer(), player);
+});
+
 test("local registration clears duplicated tournament state and retries when storage is already pressured", () => {
   const storage = new QuotaStorage(5_000_000);
   Object.defineProperty(globalThis, "window", { configurable: true, value: { localStorage: storage } });

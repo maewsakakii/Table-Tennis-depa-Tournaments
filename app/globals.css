@@ -83,6 +83,8 @@ button { color: inherit; }
 .brand-paddle::after { content: ""; position: absolute; width: 7px; height: 13px; background: var(--ink); right: -3px; bottom: -7px; transform: rotate(-40deg); border-radius: 2px; }
 .live-pill { font: 700 9px/1 var(--font-display); letter-spacing: .08em; padding: 8px 10px; border: 1px solid rgba(211,255,72,.22); color: #c8d3cf; display: flex; align-items: center; gap: 7px; }
 .live-pill span { width: 6px; height: 6px; border-radius: 50%; background: var(--lime); box-shadow: 0 0 9px var(--lime); animation: pulse 1.8s infinite; }
+.registration-closed-pill { color:#93a29c;border-color:rgba(255,255,255,.13); }
+.registration-closed-pill span { background:#73837d;box-shadow:none;animation:none; }
 
 .page-wrap { width: min(100% - 32px, 1100px); margin: 16px auto 48px; }
 .hype-panel { padding: 28px 4px 34px; }
@@ -147,6 +149,14 @@ button { color: inherit; }
 .privacy-note svg { color: var(--cyan); flex: 0 0 auto; }
 .primary-button, .confirm-button { width: 100%; min-height: 56px; border: 0; background: var(--lime); color: #07100e; font: 700 15px/1 var(--font-display); display: flex; align-items: center; justify-content: center; gap: 12px; cursor: pointer; box-shadow: 0 9px 30px rgba(211,255,72,.12); clip-path: polygon(0 0,calc(100% - 12px) 0,100% 12px,100% 100%,12px 100%,0 calc(100% - 12px)); transition: filter .2s; }
 .primary-button:hover, .confirm-button:hover { filter: brightness(1.08); }
+.primary-button:disabled,.secondary-button:disabled { opacity:.5;cursor:not-allowed; }
+.recovery-entry-button { width:100%;min-height:48px;margin-top:10px;border:0;background:transparent;color:#9baca5;display:flex;align-items:center;justify-content:center;gap:7px;cursor:pointer;font-size:12px; }
+.closed-card { min-height:320px;display:flex;flex-direction:column;align-items:flex-start;justify-content:center; }
+.closed-card h2 { font:700 30px/1.1 var(--font-display);margin:13px 0 8px; }
+.closed-card>p { color:var(--muted);font-size:13px;line-height:1.65;margin:0 0 20px; }
+.closed-card>small { color:#71847c;font-size:10px;line-height:1.6; }
+.closed-icon { width:52px;height:52px;display:grid;place-items:center;background:rgba(211,255,72,.08);color:var(--lime);margin-bottom:17px;border:1px solid rgba(211,255,72,.2); }
+.closed-icon>span { width:25px;height:25px;border:1px solid currentColor;border-radius:50%;display:grid;place-items:center;font-weight:700; }
 
 footer { width: min(100% - 36px,1100px); margin: 0 auto; padding: 20px 0 30px; border-top: 1px solid rgba(255,255,255,.06); display: flex; align-items: center; gap: 12px; color: #4f625b; font: 600 8px/1 var(--font-display); letter-spacing: .12em; }
 footer i { height: 1px; background: rgba(255,255,255,.1); flex: 1; }
@@ -168,6 +178,14 @@ footer i { height: 1px; background: rgba(255,255,255,.1); flex: 1; }
 .confirm-button { min-height: 54px; }
 .confirm-button:disabled { cursor: wait; filter: saturate(.4); }
 .text-button { background: none; border: 0; padding: 13px; color: #899a94; cursor: pointer; font-size: 12px; }
+.recovery-sheet { text-align:left; }
+.recovery-sheet .closed-icon { margin:0 auto 13px; }
+.recovery-sheet .warning-kicker { justify-content:center; }
+.recovery-sheet>h2,.recovery-sheet>p { text-align:center; }
+.recovery-sheet>p { color:var(--muted);font-size:12px;line-height:1.55;margin:-6px 0 18px; }
+.recovery-input-label span { display:block;color:#d6dfdb;font-size:11px;font-weight:700;margin-bottom:7px; }
+.recovery-input-label input { width:100%;height:52px;background:#07130f;border:1px solid rgba(255,255,255,.14);color:#fff;padding:0 12px;text-transform:uppercase;font:700 13px/1 var(--font-display);letter-spacing:.04em;outline:none;margin-bottom:13px; }
+.recovery-input-label input:focus { border-color:var(--lime);box-shadow:0 0 0 3px rgba(211,255,72,.08); }
 .button-loader { width: 18px; height: 18px; border: 2px solid rgba(7,16,14,.25); border-top-color: #07100e; border-radius: 50%; animation: spin .7s linear infinite; }
 
 .lobby-wrap { width: min(100% - 32px,520px); margin: 28px auto 52px; text-align: center; }
@@ -201,6 +219,10 @@ footer i { height: 1px; background: rgba(255,255,255,.1); flex: 1; }
 .lobby-message { display: flex; gap: 11px; align-items: center; text-align: left; padding: 15px; margin: 18px 0 12px; background: rgba(101,229,255,.06); border: 1px solid rgba(101,229,255,.14); }
 .lobby-message svg { color: var(--cyan); }
 .lobby-message b, .lobby-message span { display: block; }.lobby-message b { font-size: 12px; }.lobby-message span { color: #84978f; font-size: 10px; margin-top: 2px; }
+.recovery-card { margin-top:18px;padding:14px;text-align:left;background:rgba(255,113,70,.055);border:1px solid rgba(255,113,70,.2);display:grid;grid-template-columns:1fr auto;gap:8px 10px;align-items:center; }
+.recovery-card span,.recovery-card strong { display:block; }.recovery-card span { color:#ff9b7d;font:700 8px/1 var(--font-display);letter-spacing:.08em; }.recovery-card strong { margin-top:7px;font:700 11px/1.2 var(--font-display);overflow-wrap:anywhere;letter-spacing:.025em; }.recovery-card button { min-height:40px;padding:0 10px;border:1px solid rgba(255,255,255,.12);background:#0b1814;color:#d9e1de;display:flex;align-items:center;gap:5px;font-size:9px;cursor:pointer; }.recovery-card p { grid-column:1/-1;color:#879a92;font-size:9px;line-height:1.55;margin:2px 0 0; }
+.lobby-error { display:flex;align-items:center;gap:8px;color:#ff9a7c;background:rgba(255,113,70,.08);border:1px solid rgba(255,113,70,.2);padding:11px 12px;margin:-3px 0 12px;text-align:left;font-size:10px; }.lobby-error>span { width:18px;height:18px;border:1px solid currentColor;border-radius:50%;display:grid;place-items:center;flex:0 0 auto; }
+.reveal-button { margin-top:0; }
 .secondary-button { width: 100%; min-height: 48px; background: transparent; border: 1px solid rgba(255,255,255,.12); display: flex; align-items: center; justify-content: center; gap: 6px; cursor: pointer; color: #9baca5; font-size: 12px; }
 .next-up { display: flex; align-items: center; gap: 8px; margin-top: 24px; color: #586a63; font: 600 8px/1 var(--font-display); letter-spacing: .1em; }
 .next-up i { height: 1px; flex: 1; background: rgba(255,255,255,.09); }

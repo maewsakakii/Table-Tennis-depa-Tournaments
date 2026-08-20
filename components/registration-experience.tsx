@@ -4,8 +4,10 @@ import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
 import {
   ArrowRight,
   Check,
-  ChevronLeft,
+  Copy,
   ImagePlus,
+  KeyRound,
+  LockKeyhole,
   ShieldCheck,
   Sparkles,
   Trophy,
@@ -23,11 +25,15 @@ import {
   getTournamentState,
   initialTournamentState,
   PLAYER_STORAGE_KEY,
+  readPlayerIdentity,
   readSavedPlayer,
-  registerPlayerOnline,
+  registerPlayerWithIdentity,
+  restorePlayerWithRecoveryCode,
+  revealMyOpponent,
   subscribeToTournamentState,
+  toPublicPlayer,
 } from "@/lib/tournament-store";
-import type { Player, TournamentState } from "@/lib/types";
+import type { Player, PlayerReveal, TournamentState } from "@/lib/types";
 
 type FormState = Pick<Player, "nickname" | "department">;
 type Errors = Partial<Record<keyof FormState | "avatar", string>>;
@@ -45,7 +51,14 @@ export function RegistrationExperience() {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState("");
   const [tournament, setTournament] = useState<TournamentState>(initialTournamentState);
-  const [dismissedDraw, setDismissedDraw] = useState(0);
+  const [recoveryCode, setRecoveryCode] = useState("");
+  const [restoreCode, setRestoreCode] = useState("");
+  const [restoreOpen, setRestoreOpen] = useState(false);
+  const [restoring, setRestoring] = useState(false);
+  const [reveal, setReveal] = useState<PlayerReveal | null>(null);
+  const [revealLoading, setRevealLoading] = useState(false);
+  const [lobbyError, setLobbyError] = useState("");
+  const [backendError, setBackendError] = useState("");
   const fileRef = useRef<HTMLInputElement>(null);
   const reduceMotion = useReducedMotion();
 
@@ -55,6 +68,7 @@ export function RegistrationExperience() {
         const storedPlayer = readSavedPlayer();
         if (!storedPlayer) return;
         setPlayer(storedPlayer);
+        setRecoveryCode(readPlayerIdentity()?.recoveryCode ?? "");
         setView("lobby");
       } catch {
         window.localStorage.removeItem(PLAYER_STORAGE_KEY);
@@ -65,7 +79,7 @@ export function RegistrationExperience() {
   }, []);
 
   useEffect(() => {
-    void getTournamentState().then(setTournament);
+    void getTournamentState().then(setTournament).catch((cause) => setBackendError(cause instanceof Error ? cause.message : "ระบบออนไลน์ยังไม่พร้อมใช้งาน"));
     return subscribeToTournamentState(setTournament);
   }, []);
 
@@ -123,8 +137,9 @@ export function RegistrationExperience() {
         registeredAt: new Date().toISOString(),
         status: "waiting",
       };
-      const savedPlayer = await registerPlayerOnline(newPlayer, avatarFile);
-      setPlayer(savedPlayer);
+      const registration = await registerPlayerWithIdentity(newPlayer, avatarFile);
+      setPlayer(registration.player);
+      setRecoveryCode(registration.recoveryCode);
       setConfirmOpen(false);
       setView("lobby");
       window.scrollTo({ top: 0, behavior: reduceMotion ? "auto" : "smooth" });
@@ -135,12 +150,27 @@ export function RegistrationExperience() {
     }
   }
 
-  function editRegistration() {
-    if (player) {
-      setForm({ nickname: player.nickname, department: player.department });
-      setAvatarUrl(player.avatarUrl);
-    }
-    setView("registration");
+  async function restoreIdentity(event: FormEvent) {
+    event.preventDefault();
+    setRestoring(true);
+    setSubmitError("");
+    try {
+      const restored = await restorePlayerWithRecoveryCode(restoreCode);
+      setPlayer(restored);
+      setRecoveryCode(readPlayerIdentity()?.recoveryCode ?? restoreCode.trim().toUpperCase());
+      setView("lobby");
+      setRestoreOpen(false);
+    } catch (cause) {
+      setSubmitError(cause instanceof Error ? cause.message : "กู้คืนผู้เล่นไม่สำเร็จ");
+    } finally { setRestoring(false); }
+  }
+
+  async function revealOpponent() {
+    setRevealLoading(true);
+    setLobbyError("");
+    try { setReveal(await revealMyOpponent()); }
+    catch (cause) { setLobbyError(cause instanceof Error ? cause.message : "เปิดผลจับคู่ไม่สำเร็จ"); }
+    finally { setRevealLoading(false); }
   }
 
   return (
@@ -150,11 +180,11 @@ export function RegistrationExperience() {
       <div className="court-line court-line-right" aria-hidden="true" />
 
       <header className="site-header">
-        <button className="brand-lockup" onClick={() => setView("registration")} aria-label="ไปหน้าลงทะเบียน">
+        <button className="brand-lockup" type="button" onClick={() => setView(player ? "lobby" : "registration")} aria-label={player ? "กลับหน้า Lobby ของฉัน" : "ไปหน้าลงทะเบียน"}>
           <span className="brand-mark"><span className="brand-paddle" /></span>
           <span><b>depa TABLE TENNIS</b><strong>TOURNAMENT 2026</strong></span>
         </button>
-        <div className="live-pill"><span /> REGISTRATION OPEN</div>
+        <div className={`live-pill ${!tournament.registrationOpen ? "registration-closed-pill" : ""}`}><span /> {tournament.registrationOpen ? "REGISTRATION OPEN" : "REGISTRATION CLOSED"}</div>
       </header>
 
       <AnimatePresence mode="wait">
@@ -179,7 +209,11 @@ export function RegistrationExperience() {
               </div>
             </section>
 
-            <section className="registration-card" aria-labelledby="form-title">
+            {backendError ? (
+              <SetupUnavailable message={backendError} />
+            ) : !tournament.registrationOpen ? (
+              <RegistrationClosed onRestore={() => setRestoreOpen(true)} />
+            ) : <section className="registration-card" aria-labelledby="form-title">
               <div className="card-index" aria-hidden="true">01</div>
               <div className="form-heading">
                 <span className="eyebrow">PLAYER ENTRY</span>
@@ -248,11 +282,12 @@ export function RegistrationExperience() {
                 <motion.button className="primary-button" type="submit" whileTap={{ scale: 0.97 }}>
                   <span>ล็อกอินเข้าสู่สนาม</span><ArrowRight size={20} />
                 </motion.button>
+                <button className="recovery-entry-button" type="button" onClick={() => setRestoreOpen(true)}><KeyRound size={17} /> มีรหัสกู้คืนผู้เล่นอยู่แล้ว</button>
               </form>
-            </section>
+            </section>}
           </motion.div>
         ) : player ? (
-          <Lobby key="lobby" player={player} tournament={tournament} onEdit={editRegistration} reduceMotion={Boolean(reduceMotion)} />
+          <Lobby key="lobby" player={player} tournament={tournament} recoveryCode={recoveryCode} revealLoading={revealLoading} error={lobbyError} onReveal={revealOpponent} reduceMotion={Boolean(reduceMotion)} />
         ) : null}
       </AnimatePresence>
 
@@ -272,9 +307,8 @@ export function RegistrationExperience() {
         )}
       </AnimatePresence>
       <AnimatePresence>
-        {tournament.status === "drawing" && tournament.version > dismissedDraw && (
-          <MatchmakingRoulette state={tournament} onFinish={() => setDismissedDraw(tournament.version)} />
-        )}
+        {restoreOpen && <RecoverySheet value={restoreCode} onChange={setRestoreCode} onClose={() => { setRestoreOpen(false); setSubmitError(""); }} onSubmit={restoreIdentity} loading={restoring} error={submitError} />}
+        {reveal && player && <MatchmakingRoulette player={toPublicPlayer(player)} reveal={reveal} onFinish={() => setReveal(null)} />}
       </AnimatePresence>
     </main>
   );
@@ -360,7 +394,18 @@ function ConfirmationSheet({
   );
 }
 
-function Lobby({ player, tournament, onEdit, reduceMotion }: { player: Player; tournament: TournamentState; onEdit: () => void; reduceMotion: boolean }) {
+function Lobby({ player, tournament, recoveryCode, revealLoading, error, onReveal, reduceMotion }: { player: Player; tournament: TournamentState; recoveryCode: string; revealLoading: boolean; error: string; onReveal: () => void; reduceMotion: boolean }) {
+  const [copied, setCopied] = useState(false);
+
+  async function copyCode() {
+    if (!recoveryCode) return;
+    try {
+      await navigator.clipboard.writeText(recoveryCode);
+      setCopied(true);
+      window.setTimeout(() => setCopied(false), 1800);
+    } catch { setCopied(false); }
+  }
+
   return (
     <motion.div
       className="lobby-wrap"
@@ -379,11 +424,11 @@ function Lobby({ player, tournament, onEdit, reduceMotion }: { player: Player; t
         </motion.div>
         <span className="eyebrow">REGISTRATION COMPLETE</span>
         <h1>เข้าร่วมสนาม<br /><em>สำเร็จ!</em></h1>
-        <p>ใบสมัครถูกล็อกแล้ว เตรียมตัวให้พร้อม<br />ระบบจะแจ้งเตือนเมื่อเริ่มจับคู่</p>
+        <p>เครื่องนี้จำโปรไฟล์ของคุณไว้แล้ว<br />กลับมาเมื่อไรก็เข้าสู่ Lobby เดิมอัตโนมัติ</p>
       </section>
 
       <section className="player-ticket" aria-label="การ์ดผู้เล่น">
-        <div className="ticket-topline"><span>OFFICIAL PLAYER PASS</span><b>#OS-{player.id.slice(0, 4).toUpperCase()}</b></div>
+        <div className="ticket-topline"><span>OFFICIAL PLAYER PASS</span><b>{player.id}</b></div>
         <div className="player-portrait">
           <Image src={player.avatarUrl} alt={`รูปโปรไฟล์ของ ${player.nickname}`} fill unoptimized />
           <div className="portrait-scanline" />
@@ -394,7 +439,7 @@ function Lobby({ player, tournament, onEdit, reduceMotion }: { player: Player; t
           <h2>{player.nickname}</h2>
           <p>{player.department}</p>
           <div className="player-meta">
-            <div><span>SEED</span><b>—</b></div>
+            <div><span>PLAYER ID</span><b>{player.id}</b></div>
             <div><span>WINS</span><b>0</b></div>
             <div><span>STATUS</span><b>READY</b></div>
           </div>
@@ -402,11 +447,26 @@ function Lobby({ player, tournament, onEdit, reduceMotion }: { player: Player; t
         <div className="ticket-cut ticket-cut-left" /><div className="ticket-cut ticket-cut-right" />
       </section>
 
-      <div className="lobby-message"><Sparkles size={19} /><div><b>{tournament.status === "ready" ? "จับคู่แข่งขันสำเร็จแล้ว" : "อยู่ใน Lobby แล้ว"}</b><span>{tournament.status === "ready" ? "เตรียมพบกับคู่แข่งของคุณในสายการแข่งขัน" : "รอแอดมินเริ่ม Matchmaking Roulette"}</span></div></div>
-      <button className="secondary-button" onClick={onEdit}><ChevronLeft size={18} /> แก้ไขข้อมูลผู้เล่น</button>
+      {recoveryCode && <section className="recovery-card" aria-label="รหัสกู้คืนผู้เล่น"><div><span>RECOVERY CODE · เก็บเป็นความลับ</span><strong>{recoveryCode}</strong></div><button type="button" onClick={copyCode} aria-label="คัดลอกรหัสกู้คืน"><Copy size={17} /> {copied ? "คัดลอกแล้ว" : "คัดลอก"}</button><p>บันทึกหรือแคปหน้าจอรหัสนี้ไว้ หากเปลี่ยนเครื่องหรือล้างข้อมูลเบราว์เซอร์ คุณต้องใช้รหัสนี้เพื่อกลับเข้าชื่อเดิม</p></section>}
+
+      <div className="lobby-message"><Sparkles size={19} /><div><b>{tournament.revealOpen ? "เปิดให้ดูคู่แข่งแล้ว!" : tournament.status === "locked" ? "จับคู่หลังบ้านเรียบร้อยแล้ว" : "อยู่ใน Lobby แล้ว"}</b><span>{tournament.revealOpen ? "กดปุ่มด้านล่างเพื่อเปิดแอนิเมชันส่วนตัว" : tournament.status === "locked" ? "ผลยังเป็นความลับ รอแอดมินเปิดสัญญาณ" : "รอแอดมินสุ่มและล็อกคู่แข่งขัน"}</span></div></div>
+      {error && <div className="lobby-error"><CircleAlertIcon />{error}</div>}
+      {tournament.revealOpen ? <motion.button className="primary-button reveal-button" type="button" onClick={onReveal} disabled={revealLoading} whileTap={{ scale: .97 }}><Zap size={20} />{revealLoading ? "กำลังโหลดคู่ของคุณ..." : "สุ่มดูคู่แข่งของฉัน"}</motion.button> : <button className="secondary-button" type="button" disabled><LockKeyhole size={18} /> ยังไม่เปิดให้ดูคู่แข่ง</button>}
       <div className="next-up"><span>NEXT UP</span><i /><b><Trophy size={16} /> MATCHMAKING ROULETTE</b></div>
     </motion.div>
   );
+}
+
+function RegistrationClosed({ onRestore }: { onRestore: () => void }) {
+  return <section className="registration-card closed-card" aria-labelledby="closed-title"><div className="closed-icon"><LockKeyhole size={27} /></div><span className="eyebrow">REGISTRATION CLOSED</span><h2 id="closed-title">ปิดรับสมัครแล้ว</h2><p>การแข่งขันกำลังเข้าสู่ช่วงจับคู่ ผู้สมัครเดิมยังกลับเข้า Lobby ได้ด้วยรหัสกู้คืน</p><button className="primary-button" type="button" onClick={onRestore}><KeyRound size={18} /> ใช้รหัสกู้คืนผู้เล่น</button></section>;
+}
+
+function SetupUnavailable({ message }: { message: string }) {
+  return <section className="registration-card closed-card" role="alert"><div className="closed-icon"><CircleAlertIcon /></div><span className="eyebrow">SETUP REQUIRED</span><h2>ระบบออนไลน์ยังไม่พร้อม</h2><p>{message}</p><small>กรุณาแจ้งผู้จัดการแข่งขันให้ตรวจสอบ Supabase และ Environment Variables</small></section>;
+}
+
+function RecoverySheet({ value, onChange, onClose, onSubmit, loading, error }: { value: string; onChange: (value: string) => void; onClose: () => void; onSubmit: (event: FormEvent) => void; loading: boolean; error: string }) {
+  return <motion.div className="sheet-backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}><motion.section className="bottom-sheet recovery-sheet" role="dialog" aria-modal="true" aria-labelledby="recovery-title" initial={{ y: "100%" }} animate={{ y: 0 }} exit={{ y: "100%" }}><div className="sheet-handle" /><button className="sheet-close" onClick={onClose} aria-label="ปิด"><X size={20} /></button><div className="closed-icon"><KeyRound size={25} /></div><span className="warning-kicker">RETURNING PLAYER</span><h2 id="recovery-title">กลับเข้าชื่อเดิม</h2><p>กรอกรหัสที่ได้รับหลังสมัคร เพื่อกู้คืน Player Pass บนเครื่องนี้</p><form onSubmit={onSubmit}><label className="recovery-input-label"><span>รหัสกู้คืนผู้เล่น</span><input value={value} onChange={(event) => onChange(event.target.value)} placeholder="DT-XXXX-XXXX-XXXX-XXXX-XXXX-XXXX" autoCapitalize="characters" autoComplete="off" required /></label>{error && <div className="sheet-error"><CircleAlertIcon />{error}</div>}<button className="confirm-button" disabled={loading}>{loading ? <span className="button-loader" /> : <KeyRound size={18} />}{loading ? "กำลังกู้คืน..." : "กลับเข้า Lobby"}</button></form></motion.section></motion.div>;
 }
 
 function CircleAlertIcon() {

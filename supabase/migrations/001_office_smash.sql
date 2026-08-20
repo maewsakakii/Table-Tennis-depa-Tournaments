@@ -1,7 +1,20 @@
--- OFFICE SMASH · Phase 1–2
--- Run this file once in Supabase Dashboard > SQL Editor.
+-- depa TABLE TENNIS · Base schema
+-- Rerunnable. Apply migrations in numeric order; 003 adds secure identity and hidden draws.
 
-create extension if not exists pgcrypto;
+create schema if not exists extensions;
+create extension if not exists pgcrypto with schema extensions;
+do $$
+begin
+  if exists (
+    select 1
+    from pg_catalog.pg_extension e
+    join pg_catalog.pg_namespace n on n.oid = e.extnamespace
+    where e.extname = 'pgcrypto' and n.nspname <> 'extensions'
+  ) then
+    execute 'alter extension pgcrypto set schema extensions';
+  end if;
+end $$;
+create sequence if not exists public.player_public_id_seq;
 
 create table if not exists public.admin_users (
   user_id uuid primary key references auth.users(id) on delete cascade,
@@ -18,7 +31,7 @@ returns boolean
 language sql
 stable
 security definer
-set search_path = public
+set search_path = pg_catalog
 as $$
   select
     exists (select 1 from public.admin_users where user_id = auth.uid())
@@ -32,6 +45,9 @@ grant execute on function public.is_tournament_admin() to anon, authenticated;
 
 create table if not exists public.players (
   id uuid primary key default gen_random_uuid(),
+  public_id text not null unique default (
+    'DT-' || lpad(nextval('public.player_public_id_seq')::text, 2, '0')
+  ),
   nickname text not null check (char_length(nickname) between 2 and 40),
   department text not null check (char_length(department) between 1 and 80),
   email text,
@@ -45,16 +61,28 @@ alter table public.players alter column email drop not null;
 drop index if exists public.players_email_unique;
 create unique index players_email_unique
 on public.players (lower(email)) where email is not null;
+create unique index if not exists players_avatar_url_unique
+on public.players (avatar_url);
 
 create table if not exists public.tournament_state (
   id smallint primary key default 1 check (id = 1),
   version integer not null default 0,
-  status text not null default 'registration' check (status in ('registration', 'drawing', 'ready')),
-  roster jsonb not null default '[]'::jsonb,
-  pairs jsonb not null default '[]'::jsonb,
+  status text not null default 'registration' check (status in ('registration', 'locked')),
+  registration_open boolean not null default true,
+  reveal_open boolean not null default false,
   started_at timestamptz,
-  updated_at timestamptz not null default now()
+  updated_at timestamptz not null default now(),
+  constraint tournament_state_control_state_check check (
+    not (registration_open and reveal_open)
+    and (not reveal_open or (status = 'locked' and version > 0))
+  )
 );
+
+-- Keep reruns compatible with installations created before registration/reveal controls.
+alter table public.tournament_state
+  add column if not exists registration_open boolean not null default true;
+alter table public.tournament_state
+  add column if not exists reveal_open boolean not null default false;
 
 insert into public.tournament_state (id) values (1) on conflict (id) do nothing;
 
@@ -74,12 +102,8 @@ on public.admin_emails for select to authenticated
 using (email = lower(coalesce(auth.jwt() ->> 'email', '')));
 
 drop policy if exists "Registration is open for inserts" on public.players;
-create policy "Registration is open for inserts"
-on public.players for insert to anon, authenticated
-with check (
-  status = 'waiting'
-  and exists (select 1 from public.tournament_state where id = 1 and status = 'registration')
-);
+-- Player creation is granted only through register_player() in migration 003 so
+-- every public record receives a hashed recovery credential atomically.
 
 drop policy if exists "Admins can read players" on public.players;
 create policy "Admins can read players"
@@ -98,10 +122,7 @@ on public.tournament_state for select to anon, authenticated
 using (true);
 
 drop policy if exists "Admins control tournament state" on public.tournament_state;
-create policy "Admins control tournament state"
-on public.tournament_state for update to authenticated
-using (public.is_tournament_admin())
-with check (public.is_tournament_admin());
+-- Tournament controls are updated through the locked admin RPC in migration 003.
 
 insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
 values (
@@ -117,9 +138,17 @@ on conflict (id) do update set
   allowed_mime_types = excluded.allowed_mime_types;
 
 drop policy if exists "Anyone can upload a player avatar" on storage.objects;
-create policy "Anyone can upload a player avatar"
+drop policy if exists "Registration-open avatar uploads" on storage.objects;
+create policy "Registration-open avatar uploads"
 on storage.objects for insert to anon, authenticated
-with check (bucket_id = 'player-avatars');
+with check (
+  bucket_id = 'player-avatars'
+  and name ~ '^pending/[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.(jpg|jpeg|png|webp|heic|heif)$'
+  and exists (
+    select 1 from public.tournament_state
+    where id = 1 and registration_open = true
+  )
+);
 
 drop policy if exists "Admins can manage player avatars" on storage.objects;
 create policy "Admins can manage player avatars"
