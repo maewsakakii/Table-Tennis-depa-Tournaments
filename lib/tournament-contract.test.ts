@@ -125,7 +125,7 @@ test("local demo requires an explicit flag and can never activate in production"
   delete process.env.NEXT_PUBLIC_ENABLE_LOCAL_DEMO;
 });
 
-test("a player reveal is idempotent and returns only that player's assigned opponent", async () => {
+test("one draw locks registration, opens private reveal, and returns only that player's opponent", async () => {
   const storage = new MemoryStorage();
   Object.defineProperty(globalThis, "window", {
     configurable: true,
@@ -148,7 +148,12 @@ test("a player reveal is idempotent and returns only that player's assigned oppo
   const draw = await generateHiddenAssignments();
   assert.equal(draw.pairs.length, 1);
   assert.equal(JSON.stringify(draw).includes("avatarUrl"), false);
-  await updateTournamentControls({ revealOpen: true });
+  const state = await getTournamentState();
+  assert.equal(state.version, draw.version);
+  assert.equal(state.status, "locked");
+  assert.equal(state.registrationOpen, false);
+  assert.equal(state.revealOpen, true);
+  assert.ok(state.startedAt);
 
   const firstReveal = await revealMyOpponent();
   const repeatedReveal = await revealMyOpponent();
@@ -156,6 +161,37 @@ test("a player reveal is idempotent and returns only that player's assigned oppo
   assert.equal(firstReveal.playerId, "DT-01");
   assert.equal(firstReveal.opponent?.id, "DT-02");
   assert.deepEqual(Object.keys(firstReveal.opponent ?? {}).sort(), ["avatarUrl", "department", "id", "nickname"]);
+  delete process.env.NEXT_PUBLIC_ENABLE_LOCAL_DEMO;
+});
+
+test("an odd local roster creates exactly one Round 1 BYE that can be revealed", async () => {
+  const storage = new MemoryStorage();
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: { localStorage: storage, dispatchEvent() {}, addEventListener() {}, removeEventListener() {} },
+  });
+  process.env.NEXT_PUBLIC_ENABLE_LOCAL_DEMO = "true";
+  const makePlayer = (id: string): Player => ({
+    id,
+    nickname: id,
+    department: "Digital",
+    avatarUrl: `/demo-avatars/demo-${id.slice(-2)}.svg`,
+    registeredAt: "2026-08-20T00:00:00.000Z",
+    status: "waiting",
+  });
+  saveLocalPlayer(makePlayer("DT-01"));
+  saveLocalPlayer(makePlayer("DT-02"));
+  saveLocalPlayer(makePlayer("DT-03"), "DT-AAAA-BBBB-CCCC-DDDD-EEEE-FFFF");
+
+  const draw = await generateHiddenAssignments();
+  const byes = draw.pairs.filter((pair) => pair.player2Id === null);
+  assert.equal(draw.pairs.length, 2);
+  assert.equal(byes.length, 1);
+
+  saveLocalPlayer(makePlayer(byes[0].player1Id), "DT-AAAA-BBBB-CCCC-DDDD-EEEE-FFFF");
+  const reveal = await revealMyOpponent();
+  assert.equal(reveal.bye, true);
+  assert.equal(reveal.opponent, null);
   delete process.env.NEXT_PUBLIC_ENABLE_LOCAL_DEMO;
 });
 
@@ -417,10 +453,13 @@ test("safe-update migrations never issue a bare private match delete and expose 
   const hiddenDrawSql = readFileSync(new URL("../supabase/migrations/003_hidden_draw_and_player_identity.sql", import.meta.url), "utf8");
   const rosterSql = readFileSync(new URL("../supabase/migrations/004_admin_demo_roster_tools.sql", import.meta.url), "utf8");
   const recoverySql = readFileSync(new URL("../supabase/migrations/005_safe_update_and_player_profile.sql", import.meta.url), "utf8");
+  const simpleDrawSql = readFileSync(new URL("../supabase/migrations/006_simple_draw_launch.sql", import.meta.url), "utf8");
 
-  for (const sql of [hiddenDrawSql, rosterSql, recoverySql]) {
+  for (const sql of [hiddenDrawSql, rosterSql, recoverySql, simpleDrawSql]) {
     assert.doesNotMatch(sql, /delete\s+from\s+public\.private_matches\s*;/i);
   }
+  assert.doesNotMatch(recoverySql, /pg_catalog\.coalesce/i);
+  assert.doesNotMatch(simpleDrawSql, /pg_catalog\.coalesce/i);
   for (const rpc of [
     "admin_generate_hidden_draw",
     "admin_fill_demo_players",
@@ -434,6 +473,10 @@ test("safe-update migrations never issue a bare private match delete and expose 
   assert.match(recoverySql, /set search_path = pg_catalog/i);
   assert.match(recoverySql, /revoke all on function public\.admin_update_player_profile\(text, text, text\) from public/i);
   assert.match(recoverySql, /grant execute on function public\.admin_update_player_profile\(text, text, text\) to authenticated/i);
+  assert.match(simpleDrawSql, /admin_generate_hidden_draw[\s\S]*is_tournament_admin/i);
+  assert.match(simpleDrawSql, /update public\.tournament_state[\s\S]*registration_open\s*=\s*false[\s\S]*reveal_open\s*=\s*true/i);
+  assert.match(simpleDrawSql, /revoke all on function public\.admin_generate_hidden_draw\(\) from public, anon/i);
+  assert.match(simpleDrawSql, /grant execute on function public\.admin_generate_hidden_draw\(\) to authenticated/i);
 });
 
 test("editing a local player profile is atomic and preserves the locked draw", async () => {
@@ -500,5 +543,12 @@ test("admin roster UI keeps demo tools visible, warns before delete, and omits t
   assert.match(ui, /การลบจะยกเลิกผลจับคู่เดิม/);
   assert.match(ui, /DEMO/);
   assert.doesNotMatch(ui, /ล็อกคู่ไว้หลังบ้าน แล้วเปิดให้นักแข่งสุ่มดูคู่ของตัวเองเมื่อพร้อม/);
+  assert.doesNotMatch(ui, /เปิดให้ผู้เล่นดูคู่แข่ง/);
+  assert.match(ui, /สายการแข่งขันรอบที่ 1 ทั้งหมด/);
+  assert.match(ui, /ผู้เล่นกดสุ่มดูคู่ของตัวเองได้ทันที/);
+  assert.match(ui, /สุ่มคู่แข่งขันและเปิดให้ดู/);
+  assert.doesNotMatch(ui, /ตัวอย่างคู่ลับหลังบ้าน/);
+  assert.match(registrationUi, /แอดมินสุ่มคู่แล้ว กดเพื่อดูคู่แข่งของคุณ/);
+  assert.doesNotMatch(registrationUi, /ผลยังเป็นความลับ รอแอดมินเปิดสัญญาณ/);
   assert.match(registrationUi, /restoreSavedPlayerSession/);
 });

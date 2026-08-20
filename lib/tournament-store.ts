@@ -429,7 +429,7 @@ export async function generateHiddenAssignments(): Promise<AdminDraw> {
       version,
       status: "locked",
       registrationOpen: false,
-      revealOpen: false,
+      revealOpen: true,
       startedAt: new Date().toISOString(),
     };
     // Replace legacy avatar-heavy public state before writing even the small hidden draw.

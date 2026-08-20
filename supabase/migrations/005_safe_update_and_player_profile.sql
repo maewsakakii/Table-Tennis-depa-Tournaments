@@ -21,13 +21,13 @@ begin
   where ts.id = 1
   for update;
 
-  select pg_catalog.coalesce(
+  select coalesce(
     pg_catalog.array_agg(p.id order by extensions.gen_random_uuid()),
     array[]::uuid[]
   )
   into player_ids
   from public.players p;
-  if pg_catalog.coalesce(pg_catalog.array_length(player_ids, 1), 0) < 2 then
+  if coalesce(pg_catalog.array_length(player_ids, 1), 0) < 2 then
     raise exception 'at least two players are required';
   end if;
 
@@ -50,7 +50,7 @@ begin
   set version = next_version,
       status = 'locked',
       registration_open = false,
-      reveal_open = false,
+      reveal_open = true,
       started_at = pg_catalog.now(),
       updated_at = pg_catalog.now()
   where ts.id = 1;

@@ -21,7 +21,7 @@ Local Demo จะไม่เปิดเองอัตโนมัติ เ�
 ## Supabase setup
 
 1. สร้างโปรเจกต์ใหม่ใน Supabase
-2. เปิด **SQL Editor** แล้วรันไฟล์ migration ตามลำดับ `001`, `002`, `003`, `004`, `005` (ไฟล์ทั้งหมดรันซ้ำได้)
+2. เปิด **SQL Editor** แล้วรันไฟล์ migration ตามลำดับ `001`, `002`, `003`, `004`, `005`, `006` (ไฟล์ทั้งหมดรันซ้ำได้)
 3. ไปที่ **Authentication → Users → Add user → Create new user** แล้วกำหนดอีเมลและรหัสผ่านสำหรับผู้จัด
 4. เปิด SQL Editor แล้วเพิ่มอีเมลเดียวกันเป็นผู้ดูแล:
 
@@ -59,6 +59,8 @@ Migration จะสร้าง:
 
 หากพบ `DELETE requires a WHERE clause` หรือปุ่มควบคุมในหน้าแอดมินใช้งานไม่ได้ ให้รัน `supabase/migrations/005_safe_update_and_player_profile.sql` ใน SQL Editor ไฟล์นี้จะติดตั้ง RPC เวอร์ชันที่เข้ากับ Safe Update พร้อมเปิดฟีเจอร์แก้ชื่อและฝ่าย จากนั้นรีเฟรชหน้า `/admin`
 
+หากพบ `function pg_catalog.coalesce(uuid[], uuid[]) does not exist` หรือเคยรัน migration 005 ไปแล้ว ให้รัน `supabase/migrations/006_simple_draw_launch.sql` ใน SQL Editor แล้วรีเฟรชหน้า `/admin` ไฟล์นี้แก้คำสั่งสุ่มโดยไม่กระทบรายชื่อเดิม เมื่อแอดมินกดสุ่ม ระบบจะปิดรับสมัคร สร้างคู่รอบแรก และเปิดให้ผู้เล่นกดดูคู่ของตัวเองทันทีในคำสั่งเดียว
+
 ผู้เล่นที่สมัครก่อน migration 003 จะยังไม่มี Recovery Code ให้แอดมินเปิดการ์ดผู้เล่นใน `/admin` แล้วเลือกออกรหัสใหม่ ส่งให้เจ้าตัวผ่านช่องทางส่วนตัว รหัสเดิม (ถ้ามี) จะใช้ไม่ได้ทันที
 
 ระบบปัจจุบันออกแบบสำหรับแคมเปญภายในองค์กร หากจะเผยแพร่ลิงก์สมัครสู่สาธารณะ ควรเพิ่ม CAPTCHA/rate limiting ที่ trusted server endpoint และตั้งงานลบไฟล์ค้างใน `player-avatars/pending/` ก่อนเปิดใช้งานจริง
@@ -84,5 +86,5 @@ npm run build
 ## Current scope
 
 - Phase 1: Registration + Lobby
-- Phase 2: Admin Control Room + Realtime Matchmaking Roulette
+- Phase 2: Admin Control Room + Realtime Matchmaking Roulette พร้อมสายการแข่งขันรอบแรกทั้งหมดในหน้าแอดมิน
 - Phase 3 ต่อไป: Smart Knockout Bracket และการกระจาย BYE แบบสมดุล

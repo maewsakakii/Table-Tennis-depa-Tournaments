@@ -447,9 +447,9 @@ function Lobby({ player, tournament, recoveryCode, revealLoading, error, onRevea
 
       {recoveryCode && <section className="recovery-card" aria-label="รหัสกู้คืนผู้เล่น"><div><span>RECOVERY CODE · เก็บเป็นความลับ</span><strong>{recoveryCode}</strong></div><button type="button" onClick={copyCode} aria-label="คัดลอกรหัสกู้คืน"><Copy size={17} /> {copied ? "คัดลอกแล้ว" : "คัดลอก"}</button><p>บันทึกหรือแคปหน้าจอรหัสนี้ไว้ หากเปลี่ยนเครื่องหรือล้างข้อมูลเบราว์เซอร์ คุณต้องใช้รหัสนี้เพื่อกลับเข้าชื่อเดิม</p></section>}
 
-      <div className="lobby-message"><Sparkles size={19} /><div><b>{tournament.revealOpen ? "เปิดให้ดูคู่แข่งแล้ว!" : tournament.status === "locked" ? "จับคู่หลังบ้านเรียบร้อยแล้ว" : "อยู่ใน Lobby แล้ว"}</b><span>{tournament.revealOpen ? "กดปุ่มด้านล่างเพื่อเปิดแอนิเมชันส่วนตัว" : tournament.status === "locked" ? "ผลยังเป็นความลับ รอแอดมินเปิดสัญญาณ" : "รอแอดมินสุ่มและล็อกคู่แข่งขัน"}</span></div></div>
+      <div className="lobby-message"><Sparkles size={19} /><div><b>{tournament.revealOpen ? "จับคู่แข่งขันเรียบร้อยแล้ว!" : tournament.status === "locked" ? "ปิดรับสมัครชั่วคราว" : "อยู่ใน Lobby แล้ว"}</b><span>{tournament.revealOpen ? "แอดมินสุ่มคู่แล้ว กดเพื่อดูคู่แข่งของคุณ" : tournament.status === "locked" ? "รอแอดมินกดสุ่มคู่แข่งขัน" : "รอแอดมินสุ่มคู่แข่งขัน"}</span></div></div>
       {error && <div className="lobby-error"><CircleAlertIcon />{error}</div>}
-      {tournament.revealOpen ? <motion.button className="primary-button reveal-button" type="button" onClick={onReveal} disabled={revealLoading} whileTap={{ scale: .97 }}><Zap size={20} />{revealLoading ? "กำลังโหลดคู่ของคุณ..." : "สุ่มดูคู่แข่งของฉัน"}</motion.button> : <button className="secondary-button" type="button" disabled><LockKeyhole size={18} /> ยังไม่เปิดให้ดูคู่แข่ง</button>}
+      {tournament.revealOpen ? <motion.button className="primary-button reveal-button" type="button" onClick={onReveal} disabled={revealLoading} whileTap={{ scale: .97 }}><Zap size={20} />{revealLoading ? "กำลังโหลดคู่ของคุณ..." : "สุ่มดูคู่แข่งของฉัน"}</motion.button> : <button className="secondary-button" type="button" disabled><LockKeyhole size={18} /> รอแอดมินสุ่มคู่</button>}
       <div className="next-up"><span>NEXT UP</span><i /><b><Trophy size={16} /> MATCHMAKING ROULETTE</b></div>
     </motion.div>
   );

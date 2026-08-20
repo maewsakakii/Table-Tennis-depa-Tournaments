@@ -259,7 +259,7 @@ begin
   set version = next_version,
       status = 'locked',
       registration_open = false,
-      reveal_open = false,
+      reveal_open = true,
       started_at = pg_catalog.now(),
       updated_at = pg_catalog.now()
   where id = 1;
