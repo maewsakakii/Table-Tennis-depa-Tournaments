@@ -1,7 +1,8 @@
 "use client";
 
-import type { Player, PublicPlayer, TournamentState } from "@/lib/types";
-import { getSupabaseBrowserClient, isSupabaseConfigured } from "@/lib/supabase";
+import type { Player, PublicPlayer, TournamentState } from "./types.ts";
+import { getSupabaseBrowserClient, isSupabaseConfigured } from "./supabase.ts";
+import { compressAvatarForLocalStorage } from "./local-avatar.ts";
 
 export const PLAYER_STORAGE_KEY = "office-smash-player";
 const PLAYERS_STORAGE_KEY = "office-smash-players";
@@ -49,8 +50,11 @@ function mapTournamentRow(row: Record<string, unknown>): TournamentState {
 export async function registerPlayerOnline(player: Player, avatarFile: File | null) {
   const supabase = getSupabaseBrowserClient();
   if (!supabase || !avatarFile) {
-    saveLocalPlayer(player);
-    return player;
+    const localPlayer = avatarFile
+      ? { ...player, avatarUrl: await compressAvatarForLocalStorage(avatarFile, player.avatarUrl) }
+      : player;
+    saveLocalPlayer(localPlayer);
+    return localPlayer;
   }
 
   const extension = avatarFile.name.split(".").pop()?.toLowerCase() || "jpg";
@@ -78,24 +82,108 @@ export async function registerPlayerOnline(player: Player, avatarFile: File | nu
   });
 
   if (insertError) throw new Error(`บันทึกใบสมัครไม่สำเร็จ: ${insertError.message}`);
-  window.localStorage.setItem(PLAYER_STORAGE_KEY, JSON.stringify(onlinePlayer));
+  cacheOnlinePlayer(onlinePlayer);
   return onlinePlayer;
 }
 
-function saveLocalPlayer(player: Player) {
+export function cacheOnlinePlayer(player: Player) {
+  const serialized = JSON.stringify(player);
+  try {
+    window.localStorage.setItem(PLAYER_STORAGE_KEY, serialized);
+  } catch (cause) {
+    if (!isQuotaExceededError(cause)) return;
+    // The database registration is already committed. Local cache cleanup must not turn it into a failed submission.
+    window.localStorage.removeItem(PLAYER_STORAGE_KEY);
+    window.localStorage.removeItem(PLAYERS_STORAGE_KEY);
+    window.localStorage.removeItem(STATE_STORAGE_KEY);
+    try {
+      window.localStorage.setItem(PLAYER_STORAGE_KEY, serialized);
+    } catch {
+      window.localStorage.removeItem(PLAYER_STORAGE_KEY);
+    }
+  }
+}
+
+export function saveLocalPlayer(player: Player) {
+  const previousCurrentPlayer = window.localStorage.getItem(PLAYER_STORAGE_KEY);
+  const previousTournamentState = window.localStorage.getItem(STATE_STORAGE_KEY);
   const current = readLocalPlayers().filter((item) => item.id !== player.id);
-  window.localStorage.setItem(PLAYERS_STORAGE_KEY, JSON.stringify([...current, player]));
-  window.localStorage.setItem(PLAYER_STORAGE_KEY, JSON.stringify(player));
+  const roster = JSON.stringify([...current, player]);
+  const currentPlayer = JSON.stringify({ playerId: player.id });
+
+  try {
+    // Replace legacy full-player values first so their duplicated base64 image frees space.
+    window.localStorage.setItem(PLAYER_STORAGE_KEY, currentPlayer);
+    window.localStorage.setItem(PLAYERS_STORAGE_KEY, roster);
+  } catch (cause) {
+    if (!isQuotaExceededError(cause)) {
+      restoreStorageValue(PLAYER_STORAGE_KEY, previousCurrentPlayer);
+      restoreStorageValue(STATE_STORAGE_KEY, previousTournamentState);
+      throw cause;
+    }
+    // Old roulette state also contains copies of every avatar. It is safe to rebuild in demo mode.
+    window.localStorage.removeItem(STATE_STORAGE_KEY);
+    try {
+      window.localStorage.setItem(PLAYER_STORAGE_KEY, currentPlayer);
+      window.localStorage.setItem(PLAYERS_STORAGE_KEY, roster);
+    } catch (retryCause) {
+      restoreStorageValue(PLAYER_STORAGE_KEY, previousCurrentPlayer);
+      restoreStorageValue(STATE_STORAGE_KEY, previousTournamentState);
+      if (!isQuotaExceededError(retryCause)) throw retryCause;
+      throw new Error("พื้นที่จัดเก็บของเบราว์เซอร์เต็ม กรุณาล้างข้อมูลเว็บไซต์นี้แล้วสมัครอีกครั้ง");
+    }
+  }
+}
+
+function restoreStorageValue(key: string, value: string | null) {
+  try {
+    if (value === null) window.localStorage.removeItem(key);
+    else window.localStorage.setItem(key, value);
+  } catch {
+    // Restoring an earlier value should fit; if browser state changed, avoid leaving a new dangling value.
+    window.localStorage.removeItem(key);
+  }
+}
+
+function isQuotaExceededError(cause: unknown) {
+  return cause instanceof DOMException && (
+    cause.name === "QuotaExceededError" || cause.name === "NS_ERROR_DOM_QUOTA_REACHED"
+  );
+}
+
+function parseStoredPlayer(value: string | null): Player | null {
+  if (!value) return null;
+  try {
+    const stored = JSON.parse(value) as Partial<Player>;
+    return stored.id && stored.nickname && stored.avatarUrl ? stored as Player : null;
+  } catch {
+    return null;
+  }
 }
 
 function readLocalPlayers(): Player[] {
   try {
     const players = JSON.parse(window.localStorage.getItem(PLAYERS_STORAGE_KEY) ?? "[]") as Player[];
     if (players.length) return players;
-    const current = window.localStorage.getItem(PLAYER_STORAGE_KEY);
-    return current ? [JSON.parse(current) as Player] : [];
+    const current = parseStoredPlayer(window.localStorage.getItem(PLAYER_STORAGE_KEY));
+    return current ? [current] : [];
   } catch {
     return [];
+  }
+}
+
+export function readSavedPlayer() {
+  const storedValue = window.localStorage.getItem(PLAYER_STORAGE_KEY);
+  const legacyPlayer = parseStoredPlayer(storedValue);
+  if (legacyPlayer) return legacyPlayer;
+
+  try {
+    const pointer = JSON.parse(storedValue ?? "null") as { playerId?: string } | null;
+    return pointer?.playerId
+      ? readLocalPlayers().find((player) => player.id === pointer.playerId) ?? null
+      : null;
+  } catch {
+    return null;
   }
 }
 

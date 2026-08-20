@@ -18,10 +18,12 @@ import {
 import Image from "next/image";
 import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
 import { MatchmakingRoulette } from "@/components/matchmaking-roulette";
+import { isAcceptedAvatar } from "@/lib/local-avatar";
 import {
   getTournamentState,
   initialTournamentState,
   PLAYER_STORAGE_KEY,
+  readSavedPlayer,
   registerPlayerOnline,
   subscribeToTournamentState,
 } from "@/lib/tournament-store";
@@ -49,10 +51,9 @@ export function RegistrationExperience() {
 
   useEffect(() => {
     const restorePlayer = window.setTimeout(() => {
-      const saved = window.localStorage.getItem(PLAYER_STORAGE_KEY);
-      if (!saved) return;
       try {
-        const storedPlayer = JSON.parse(saved) as Player;
+        const storedPlayer = readSavedPlayer();
+        if (!storedPlayer) return;
         setPlayer(storedPlayer);
         setView("lobby");
       } catch {
@@ -77,8 +78,7 @@ export function RegistrationExperience() {
     const file = event.target.files?.[0];
     if (!file) return;
 
-    const imageExtension = /\.(jpe?g|png|webp|heic|heif)$/i.test(file.name);
-    if (!file.type.startsWith("image/") && !imageExtension) {
+    if (!isAcceptedAvatar(file)) {
       setErrors((current) => ({ ...current, avatar: "รองรับเฉพาะไฟล์รูปภาพเท่านั้น" }));
       return;
     }
