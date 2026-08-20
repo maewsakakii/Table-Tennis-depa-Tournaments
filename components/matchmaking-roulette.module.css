@@ -1,0 +1,22 @@
+.overlay { position: fixed; inset: 0; z-index: 100; background: #040b09; color: #f5f7ed; display: flex; flex-direction: column; overflow: hidden; }
+.grid { position: absolute; inset: 0; background-image: linear-gradient(rgba(211,255,72,.04) 1px,transparent 1px),linear-gradient(90deg,rgba(211,255,72,.04) 1px,transparent 1px),radial-gradient(circle at 50% 48%,rgba(211,255,72,.13),transparent 36%); background-size: 28px 28px,28px 28px,100% 100%; mask-image: linear-gradient(to bottom,black,rgba(0,0,0,.45)); }
+.header { height: 66px; padding: 0 16px; display: flex; align-items: center; justify-content: space-between; position: relative; border-bottom: 1px solid rgba(255,255,255,.08); font: 700 10px/1 var(--font-display); letter-spacing: .1em; }
+.header > b { color: #d3ff48; }.header > span { color: #789087; }
+.live { color: #ff8b69; display: flex; align-items: center; gap: 5px; }.live svg { animation: roulettePulse 1s infinite; }
+.stage { position: relative; z-index: 1; flex: 1; display: flex; flex-direction: column; justify-content: center; align-items: center; width: min(100% - 28px,920px); margin: 0 auto; }
+.kicker { color: #d3ff48; font: 700 9px/1 var(--font-display); letter-spacing: .15em; }
+.stage > h1 { font: 700 clamp(25px,8vw,48px)/1 var(--font-display); margin: 10px 0 32px; text-align: center; letter-spacing: -.04em; }
+.versus { width: 100%; display: grid; grid-template-columns: 1fr 52px 1fr; align-items: center; gap: 5px; }
+.playerSlot { min-width: 0; text-align: center; }
+.avatar { position: relative; width: 100%; aspect-ratio: .82; max-height: 38vh; background: #11201c; border: 1px solid rgba(255,255,255,.12); overflow: hidden; box-shadow: 0 22px 50px rgba(0,0,0,.35); }
+.avatar img { object-fit: cover; }.left .avatar { clip-path: polygon(0 0,100% 4%,92% 100%,0 94%); border-bottom: 4px solid #65e5ff; }.right .avatar { clip-path: polygon(0 4%,100% 0,100% 94%,8% 100%); border-bottom: 4px solid #ff7146; }
+.playerSlot > span { display: block; margin-top: 12px; color: #82978f; font-size: 9px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.playerSlot h2 { font: 700 clamp(19px,6vw,36px)/1.05 var(--font-display); margin: 5px 0 0; overflow-wrap: anywhere; }
+.vs { width: 52px; height: 52px; border-radius: 50%; background: #d3ff48; color: #06100e; display: grid; place-items: center; font: italic 700 22px/1 var(--font-display); box-shadow: 0 0 32px rgba(211,255,72,.34); position: relative; z-index: 3; }
+.byeSlot { aspect-ratio: .82; max-height: 38vh; border: 1px dashed rgba(211,255,72,.35); background: rgba(211,255,72,.04); display: flex; flex-direction: column; align-items: center; justify-content: center; }.byeSlot b { color: #d3ff48; font: 700 28px/1 var(--font-display); }.byeSlot span { color: #80928b; margin-top: 8px; font-size: 9px; }
+.locked { margin-top: 28px; padding: 9px 13px; border: 1px solid rgba(211,255,72,.25); color: #d3ff48; display: flex; align-items: center; gap: 7px; font: 700 9px/1 var(--font-display); letter-spacing: .1em; }
+.progress { position: relative; z-index: 1; height: 3px; width: calc(100% - 32px); margin: 0 auto 12px; background: #17251f; }.progress i { display: block; height: 100%; background: #d3ff48; transition: width .25s linear; box-shadow: 0 0 10px #d3ff48; }
+.skip { position: relative; z-index: 1; min-height: 50px; margin: 0 16px max(16px,env(safe-area-inset-bottom)); border: 1px solid rgba(255,255,255,.13); background: #0e1a16; display: flex; align-items: center; justify-content: center; gap: 8px; cursor: pointer; font-weight: 700; font-size: 12px; }
+@keyframes roulettePulse { 50% { opacity: .3; } }
+@media (min-width: 760px) { .header { padding: 0 30px; }.versus { grid-template-columns: 1fr 82px 1fr; gap: 22px; }.vs { width: 78px; height: 78px; font-size: 31px; }.skip { width: 300px; align-self: center; }.avatar { aspect-ratio: 1; }.stage > h1 { margin-bottom: 40px; } }
+@media (prefers-reduced-motion: reduce) { .live svg { animation: none; } }
