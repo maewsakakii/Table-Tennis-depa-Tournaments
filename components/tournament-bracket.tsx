@@ -78,7 +78,9 @@ function MatchCard({ match, snapshot, players, currentPlayerId, onPath, admin, o
     <PlayerSlot slot={1} playerId={match.player1Id} sourceId={match.source1MatchId} match={match} snapshot={snapshot} players={players} currentPlayerId={currentPlayerId} onSelectPlayer={onSelectPlayer} />
     <div className={styles.divider}><i /><b>VS</b><i /></div>
     <PlayerSlot slot={2} playerId={match.player2Id} sourceId={match.source2MatchId} match={match} snapshot={snapshot} players={players} currentPlayerId={currentPlayerId} onSelectPlayer={onSelectPlayer} />
-    {actionable && <button className={styles.scoreAction} type="button" onClick={(event) => { event.stopPropagation(); onSelectMatch?.(match); }}>{match.status === "completed" ? "แก้ไขผลการแข่งขัน" : "กรอกคะแนนการแข่งขัน"}</button>}
+    {actionable
+      ? <button className={styles.scoreAction} type="button" onClick={(event) => { event.stopPropagation(); onSelectMatch?.(match); }}>{match.status === "completed" ? "แก้ไขผลการแข่งขัน" : "กรอกคะแนนการแข่งขัน"}</button>
+      : admin && <p className={styles.scoreNote}>{match.status === "bye" ? "ชนะบายอัตโนมัติ · ไม่ต้องกรอกคะแนน" : "กรอกคะแนนได้เมื่อทราบผู้เล่นครบสองฝั่ง"}</p>}
   </article>;
 }
 
