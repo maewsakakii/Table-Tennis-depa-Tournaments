@@ -35,17 +35,25 @@ export function TournamentBracket({
   const [activeRound, setActiveRound] = useState(0);
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // Rounds are measured, not assumed one-viewport-wide: desktop shows several columns at once.
   function goToRound(index: number) {
     const safeIndex = Math.max(0, Math.min(index, rounds.length - 1));
     setActiveRound(safeIndex);
     const container = scrollRef.current;
-    if (container) container.scrollTo({ left: safeIndex * container.clientWidth, behavior: "smooth" });
+    const target = container?.children[safeIndex] as HTMLElement | undefined;
+    if (container && target) container.scrollTo({ left: target.offsetLeft - container.offsetLeft, behavior: "smooth" });
   }
 
   function trackRound(event: UIEvent<HTMLDivElement>) {
     const container = event.currentTarget;
-    if (!container.clientWidth) return;
-    setActiveRound(Math.max(0, Math.min(rounds.length - 1, Math.round(container.scrollLeft / container.clientWidth))));
+    const columns = Array.from(container.children) as HTMLElement[];
+    if (!columns.length) return;
+    const target = container.offsetLeft + container.scrollLeft;
+    const nearest = columns.reduce(
+      (best, column, index) => Math.abs(column.offsetLeft - target) < Math.abs(columns[best].offsetLeft - target) ? index : best,
+      0,
+    );
+    setActiveRound(nearest);
   }
 
   if (!rounds.length || !snapshot.matches.length) {
@@ -65,12 +73,12 @@ export function TournamentBracket({
 
 function MatchCard({ match, snapshot, players, currentPlayerId, onPath, admin, onSelectMatch, onSelectPlayer }: { match: BracketMatch; snapshot: TournamentSnapshot; players: Map<string, PublicPlayer>; currentPlayerId?: string; onPath: boolean; admin: boolean; onSelectMatch?: (match: BracketMatch) => void; onSelectPlayer: (player: PublicPlayer) => void }) {
   const actionable = admin && Boolean(onSelectMatch) && match.player1Id && match.player2Id && (match.status === "ready" || match.status === "completed");
-  return <article className={`${styles.matchCard} ${onPath ? styles.playerPath : ""}`}>
+  return <article className={`${styles.matchCard} ${onPath ? styles.playerPath : ""} ${actionable ? styles.actionable : ""}`} onClick={actionable ? () => onSelectMatch?.(match) : undefined}>
     <div className={styles.matchTop}><span>คู่ {match.position + 1}</span><Status match={match} /></div>
     <PlayerSlot slot={1} playerId={match.player1Id} sourceId={match.source1MatchId} match={match} snapshot={snapshot} players={players} currentPlayerId={currentPlayerId} onSelectPlayer={onSelectPlayer} />
     <div className={styles.divider}><i /><b>VS</b><i /></div>
     <PlayerSlot slot={2} playerId={match.player2Id} sourceId={match.source2MatchId} match={match} snapshot={snapshot} players={players} currentPlayerId={currentPlayerId} onSelectPlayer={onSelectPlayer} />
-    {actionable && <button className={styles.scoreAction} type="button" onClick={() => onSelectMatch?.(match)}>{match.status === "completed" ? "แก้ไขผลการแข่งขัน" : "กรอกคะแนนการแข่งขัน"}</button>}
+    {actionable && <button className={styles.scoreAction} type="button" onClick={(event) => { event.stopPropagation(); onSelectMatch?.(match); }}>{match.status === "completed" ? "แก้ไขผลการแข่งขัน" : "กรอกคะแนนการแข่งขัน"}</button>}
   </article>;
 }
 
@@ -79,7 +87,10 @@ function PlayerSlot({ slot, playerId, sourceId, match, snapshot, players, curren
   const loser = Boolean(playerId && match.status === "completed" && match.winnerId && match.winnerId !== playerId);
   const isCurrent = playerId === currentPlayerId;
   const score = slot === 1 ? match.score1 : match.score2;
-  if (!player) return <div className={styles.futureSlot}><span>?</span><div><b>{futureSourceLabel(snapshot, sourceId)}</b><small>ยังไม่ทราบผู้เล่น</small></div></div>;
+  if (!player) {
+    if (match.status === "bye") return <div className={styles.futureSlot}><span>—</span><div><b>บาย</b><small>ไม่มีคู่แข่งในรอบนี้</small></div></div>;
+    return <div className={styles.futureSlot}><span>?</span><div><b>{futureSourceLabel(snapshot, sourceId)}</b><small>ยังไม่ทราบผู้เล่น</small></div></div>;
+  }
   return <button type="button" className={`${styles.playerSlot} ${loser ? styles.loser : ""} ${isCurrent ? styles.currentPlayer : ""}`} onClick={(event) => { event.stopPropagation(); onSelectPlayer(player); }} aria-label={`ดูโปรไฟล์ ${player.nickname}`}><div className={styles.avatar}><Image src={player.avatarUrl} alt="" fill sizes="42px" unoptimized /></div><div><b>{player.nickname}</b><span>{player.id} · {player.department}</span></div>{score !== null ? <strong>{score}</strong> : <UserRound size={16} />}</button>;
 }
 
