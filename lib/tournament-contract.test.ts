@@ -7,6 +7,7 @@ import {
   adminDeletePlayer,
   adminFillDemoPlayers,
   adminIssuePlayerRecoveryCode,
+  adminUpdatePlayerProfile,
   generateHiddenAssignments,
   getAdminDraw,
   getAdminSession,
@@ -410,6 +411,86 @@ test("migration serializes registration/draw, validates controls and avatar orig
   assert.match(rosterSql, /admin_delete_player[\s\S]*is_tournament_admin/i);
   assert.match(rosterSql, /delete from public\.private_matches/i);
   assert.match(rosterSql, /if p_registration_open and not current_state\.registration_open then[\s\S]*delete from public\.private_matches/i);
+});
+
+test("safe-update migrations never issue a bare private match delete and expose guarded profile editing", () => {
+  const hiddenDrawSql = readFileSync(new URL("../supabase/migrations/003_hidden_draw_and_player_identity.sql", import.meta.url), "utf8");
+  const rosterSql = readFileSync(new URL("../supabase/migrations/004_admin_demo_roster_tools.sql", import.meta.url), "utf8");
+  const recoverySql = readFileSync(new URL("../supabase/migrations/005_safe_update_and_player_profile.sql", import.meta.url), "utf8");
+
+  for (const sql of [hiddenDrawSql, rosterSql, recoverySql]) {
+    assert.doesNotMatch(sql, /delete\s+from\s+public\.private_matches\s*;/i);
+  }
+  for (const rpc of [
+    "admin_generate_hidden_draw",
+    "admin_fill_demo_players",
+    "admin_delete_player",
+    "admin_update_tournament_controls",
+    "admin_update_player_profile",
+  ]) {
+    assert.match(recoverySql, new RegExp(`create or replace function public\\.${rpc}`, "i"));
+  }
+  assert.match(recoverySql, /admin_update_player_profile[\s\S]*is_tournament_admin/i);
+  assert.match(recoverySql, /set search_path = pg_catalog/i);
+  assert.match(recoverySql, /revoke all on function public\.admin_update_player_profile\(text, text, text\) from public/i);
+  assert.match(recoverySql, /grant execute on function public\.admin_update_player_profile\(text, text, text\) to authenticated/i);
+});
+
+test("editing a local player profile is atomic and preserves the locked draw", async () => {
+  const storage = new MemoryStorage();
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: { localStorage: storage, dispatchEvent() {}, addEventListener() {}, removeEventListener() {} },
+  });
+  process.env.NEXT_PUBLIC_ENABLE_LOCAL_DEMO = "true";
+  const players = await adminFillDemoPlayers();
+  const target = players[0];
+  saveLocalPlayer(target, "DT-AAAA-BBBB-CCCC-DDDD-EEEE-FFFF");
+  const drawBefore = await generateHiddenAssignments();
+  await updateTournamentControls({ revealOpen: true });
+  const stateBefore = await getTournamentState();
+
+  const updated = await adminUpdatePlayerProfile(target.id, {
+    nickname: "  ตัวตึงคนใหม่  ",
+    department: "  ฝ่ายนวัตกรรม  ",
+  });
+
+  assert.equal(updated.nickname, "ตัวตึงคนใหม่");
+  assert.equal(updated.department, "ฝ่ายนวัตกรรม");
+  assert.deepEqual(await getTournamentState(), stateBefore);
+  assert.deepEqual(await getAdminDraw(drawBefore.version), drawBefore);
+  assert.equal(readSavedPlayer()?.nickname, "ตัวตึงคนใหม่");
+  assert.equal((await getAllPlayers()).find((player) => player.id === target.id)?.department, "ฝ่ายนวัตกรรม");
+  await assert.rejects(
+    () => adminUpdatePlayerProfile(target.id, { nickname: " ", department: "ฝ่ายนวัตกรรม" }),
+    /ชื่อเล่น/,
+  );
+  delete process.env.NEXT_PUBLIC_ENABLE_LOCAL_DEMO;
+});
+
+test("a failed local profile edit rolls back both roster and current-player cache", async () => {
+  const storage = new QuotaStorage(Number.MAX_SAFE_INTEGER);
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: { localStorage: storage, dispatchEvent() {}, addEventListener() {}, removeEventListener() {} },
+  });
+  process.env.NEXT_PUBLIC_ENABLE_LOCAL_DEMO = "true";
+  const target = (await adminFillDemoPlayers())[0];
+  saveLocalPlayer(target, "DT-AAAA-BBBB-CCCC-DDDD-EEEE-FFFF");
+  const rosterBefore = storage.getItem("office-smash-players");
+  const sessionBefore = storage.getItem(PLAYER_STORAGE_KEY);
+  storage.setQuota(storage.used);
+
+  await assert.rejects(
+    () => adminUpdatePlayerProfile(target.id, {
+      nickname: "ชื่อใหม่ที่ยาวกว่าเดิมมาก",
+      department: "ฝ่ายใหม่ที่ยาวกว่าเดิมมาก",
+    }),
+    /พื้นที่จัดเก็บ/,
+  );
+  assert.equal(storage.getItem("office-smash-players"), rosterBefore);
+  assert.equal(storage.getItem(PLAYER_STORAGE_KEY), sessionBefore);
+  delete process.env.NEXT_PUBLIC_ENABLE_LOCAL_DEMO;
 });
 
 test("admin roster UI keeps demo tools visible, warns before delete, and omits the removed subtitle", () => {

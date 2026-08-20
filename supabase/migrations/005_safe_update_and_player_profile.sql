@@ -1,28 +1,66 @@
--- depa TABLE TENNIS · Admin-only demo roster tools
--- Rerunnable. Apply after 003_hidden_draw_and_player_identity.sql.
+-- depa TABLE TENNIS · Safe-update repair and admin profile editing
+-- Rerunnable. Apply after 004_admin_demo_roster_tools.sql.
 
-alter table public.players
-  add column if not exists is_demo boolean not null default false;
-alter table public.players
-  add column if not exists demo_slot smallint;
-
-do $$
+create or replace function public.admin_generate_hidden_draw()
+returns table (draw_version integer, match_count integer)
+language plpgsql
+security definer
+set search_path = pg_catalog
+as $$
+declare
+  player_ids uuid[];
+  next_version integer;
+  index_number integer;
 begin
-  if not exists (
-    select 1 from pg_catalog.pg_constraint
-    where conname = 'players_demo_slot_check'
-      and conrelid = 'public.players'::regclass
-  ) then
-    alter table public.players
-      add constraint players_demo_slot_check check (
-        (is_demo and demo_slot between 1 and 10)
-        or (not is_demo and demo_slot is null)
-      );
+  if not public.is_tournament_admin() then
+    raise exception 'admin access required';
   end if;
-end $$;
 
-create unique index if not exists players_demo_slot_unique
-  on public.players (demo_slot) where is_demo;
+  select ts.version + 1 into next_version
+  from public.tournament_state ts
+  where ts.id = 1
+  for update;
+
+  select pg_catalog.coalesce(
+    pg_catalog.array_agg(p.id order by extensions.gen_random_uuid()),
+    array[]::uuid[]
+  )
+  into player_ids
+  from public.players p;
+  if pg_catalog.coalesce(pg_catalog.array_length(player_ids, 1), 0) < 2 then
+    raise exception 'at least two players are required';
+  end if;
+
+  delete from public.private_matches m
+  where m.draw_version <= next_version;
+
+  index_number := 1;
+  while index_number <= pg_catalog.array_length(player_ids, 1) loop
+    insert into public.private_matches (draw_version, player1_id, player2_id)
+    values (
+      next_version,
+      player_ids[index_number],
+      case when index_number + 1 <= pg_catalog.array_length(player_ids, 1)
+        then player_ids[index_number + 1] else null end
+    );
+    index_number := index_number + 2;
+  end loop;
+
+  update public.tournament_state ts
+  set version = next_version,
+      status = 'locked',
+      registration_open = false,
+      reveal_open = false,
+      started_at = pg_catalog.now(),
+      updated_at = pg_catalog.now()
+  where ts.id = 1;
+
+  return query
+  select next_version, pg_catalog.count(*)::integer
+  from public.private_matches pm
+  where pm.draw_version = next_version;
+end;
+$$;
 
 create or replace function public.admin_fill_demo_players()
 returns table (created_count integer)
@@ -41,7 +79,6 @@ begin
     raise exception 'admin access required';
   end if;
 
-  -- Serialize roster changes with registration and draw operations.
   select ts.* into current_state
   from public.tournament_state ts
   where ts.id = 1
@@ -54,7 +91,7 @@ begin
     select
       demo_names[slot_number],
       demo_departments[slot_number],
-      '/demo-avatars/demo-' || lpad(slot_number::text, 2, '0') || '.svg',
+      '/demo-avatars/demo-' || pg_catalog.lpad(slot_number::text, 2, '0') || '.svg',
       'waiting',
       true,
       slot_number
@@ -113,10 +150,10 @@ begin
     raise exception 'player not found';
   end if;
 
-  -- Clear every assignment, not only the cascading row, because the roster changed.
   delete from public.private_matches m
   where m.draw_version <= current_state.version;
-  delete from public.players p where p.id = target_player.id;
+  delete from public.players p
+  where p.id = target_player.id;
   update public.tournament_state ts
   set version = ts.version + 1,
       status = case when ts.registration_open then 'registration' else 'locked' end,
@@ -125,11 +162,11 @@ begin
       updated_at = pg_catalog.now()
   where ts.id = 1;
 
-  return query select target_player.public_id, target_player.avatar_url, target_player.is_demo;
+  return query
+  select target_player.public_id, target_player.avatar_url, target_player.is_demo;
 end;
 $$;
 
--- Reopening registration always invalidates an older hidden draw.
 create or replace function public.admin_update_tournament_controls(
   p_registration_open boolean,
   p_reveal_open boolean
@@ -200,9 +237,68 @@ begin
 end;
 $$;
 
-revoke all on function public.admin_fill_demo_players() from public;
-revoke all on function public.admin_delete_player(text) from public;
-revoke all on function public.admin_update_tournament_controls(boolean, boolean) from public;
+create or replace function public.admin_update_player_profile(
+  p_public_id text,
+  p_nickname text,
+  p_department text
+)
+returns table (
+  public_id text,
+  nickname text,
+  department text,
+  email text,
+  avatar_url text,
+  registered_at timestamptz,
+  is_demo boolean,
+  demo_slot smallint
+)
+language plpgsql
+security definer
+set search_path = pg_catalog
+as $$
+declare
+  updated_player public.players%rowtype;
+  clean_nickname text := pg_catalog.btrim(p_nickname);
+  clean_department text := pg_catalog.btrim(p_department);
+begin
+  if not public.is_tournament_admin() then
+    raise exception 'admin access required';
+  end if;
+  if pg_catalog.char_length(clean_nickname) not between 2 and 40 then
+    raise exception 'nickname must contain 2 to 40 characters';
+  end if;
+  if pg_catalog.char_length(clean_department) not between 1 and 80 then
+    raise exception 'department must contain 1 to 80 characters';
+  end if;
+
+  update public.players p
+  set nickname = clean_nickname,
+      department = clean_department
+  where p.public_id = p_public_id
+  returning p.* into updated_player;
+  if updated_player.id is null then
+    raise exception 'player not found';
+  end if;
+
+  return query select
+    updated_player.public_id,
+    updated_player.nickname,
+    updated_player.department,
+    updated_player.email,
+    updated_player.avatar_url,
+    updated_player.registered_at,
+    updated_player.is_demo,
+    updated_player.demo_slot;
+end;
+$$;
+
+revoke all on function public.admin_generate_hidden_draw() from public, anon;
+revoke all on function public.admin_fill_demo_players() from public, anon;
+revoke all on function public.admin_delete_player(text) from public, anon;
+revoke all on function public.admin_update_tournament_controls(boolean, boolean) from public, anon;
+revoke all on function public.admin_update_player_profile(text, text, text) from public, anon;
+grant execute on function public.admin_generate_hidden_draw() to authenticated;
 grant execute on function public.admin_fill_demo_players() to authenticated;
 grant execute on function public.admin_delete_player(text) to authenticated;
 grant execute on function public.admin_update_tournament_controls(boolean, boolean) to authenticated;
+grant execute on function public.admin_update_player_profile(text, text, text) to authenticated;

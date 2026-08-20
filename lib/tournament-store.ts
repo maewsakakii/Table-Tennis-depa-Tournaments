@@ -643,6 +643,70 @@ export async function adminDeletePlayer(playerId: string): Promise<AdminDeleteRe
   return { deleted: true };
 }
 
+export type AdminPlayerProfileInput = { nickname: string; department: string };
+
+function cleanAdminPlayerProfile(input: AdminPlayerProfileInput) {
+  const nickname = input.nickname.trim();
+  const department = input.department.trim();
+  if (nickname.length < 2 || nickname.length > 40) {
+    throw new Error("ชื่อเล่นต้องมี 2–40 ตัวอักษร");
+  }
+  if (department.length < 1 || department.length > 80) {
+    throw new Error("ฝ่าย/ส่วนงานต้องมี 1–80 ตัวอักษร");
+  }
+  return { nickname, department };
+}
+
+function updateCachedCurrentPlayer(updated: Player) {
+  const storedValue = window.localStorage.getItem(PLAYER_STORAGE_KEY);
+  if (!storedValue) return;
+  const session = parseStoredSession(storedValue);
+  const legacyPlayer = parseStoredPlayer(storedValue);
+  if (session?.player?.id === updated.id) {
+    window.localStorage.setItem(PLAYER_STORAGE_KEY, JSON.stringify({ ...session, player: updated }));
+  } else if (!session && legacyPlayer?.id === updated.id) {
+    window.localStorage.setItem(PLAYER_STORAGE_KEY, JSON.stringify(updated));
+  }
+}
+
+/** Admin-only metadata edit. It intentionally leaves the draw and tournament controls unchanged. */
+export async function adminUpdatePlayerProfile(playerId: string, input: AdminPlayerProfileInput): Promise<Player> {
+  const profile = cleanAdminPlayerProfile(input);
+  const supabase = getSupabaseBrowserClient();
+  if (supabase) {
+    const { data, error } = await supabase.rpc("admin_update_player_profile", {
+      p_public_id: playerId,
+      p_nickname: profile.nickname,
+      p_department: profile.department,
+    });
+    if (error) throw new Error(error.message);
+    const row = (Array.isArray(data) ? data[0] : data) as Record<string, unknown> | null;
+    if (!row?.public_id) throw new Error("ระบบไม่ได้ยืนยันผลการแก้ไขผู้เล่น");
+    const updated = mapPlayerRow(row);
+    try { updateCachedCurrentPlayer(updated); } catch { /* online update succeeded; cache is best effort */ }
+    return updated;
+  }
+
+  assertAvailableBackend();
+  const players = readLocalPlayers();
+  const index = players.findIndex((player) => player.id === playerId);
+  if (index < 0) throw new Error("ไม่พบผู้เล่นที่เลือก");
+  const updated = { ...players[index], ...profile };
+  const nextPlayers = [...players];
+  nextPlayers[index] = updated;
+  const previousRoster = window.localStorage.getItem(PLAYERS_STORAGE_KEY);
+  const previousSession = window.localStorage.getItem(PLAYER_STORAGE_KEY);
+  try {
+    writeLocalPlayers(nextPlayers);
+    updateCachedCurrentPlayer(updated);
+  } catch (cause) {
+    restoreStorageValue(PLAYERS_STORAGE_KEY, previousRoster);
+    restoreStorageValue(PLAYER_STORAGE_KEY, previousSession);
+    throw cause;
+  }
+  return updated;
+}
+
 function readLocalRecoveryMap() {
   try {
     return JSON.parse(window.localStorage.getItem(RECOVERY_STORAGE_KEY) ?? "{}") as Record<string, string>;

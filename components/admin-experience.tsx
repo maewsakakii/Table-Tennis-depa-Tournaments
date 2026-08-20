@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { ArrowLeft, CircleAlert, Copy, Eye, EyeOff, Gamepad2, KeyRound, LockKeyhole, LogOut, Radio, RefreshCw, Shuffle, Sparkles, Trash2, UserPlus, Users, Wifi, X } from "lucide-react";
+import { ArrowLeft, CircleAlert, Copy, Eye, EyeOff, Gamepad2, KeyRound, LockKeyhole, LogOut, Pencil, Radio, RefreshCw, Shuffle, Sparkles, Trash2, UserPlus, Users, Wifi, X } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
@@ -11,6 +11,7 @@ import {
   adminIssuePlayerRecoveryCode,
   adminDeletePlayer,
   adminFillDemoPlayers,
+  adminUpdatePlayerProfile,
   type AdminSessionState,
   generateHiddenAssignments,
   getAdminDraw,
@@ -73,6 +74,9 @@ function AdminDashboard({ demo, onSignOut }: { demo: boolean; onSignOut: () => v
   const [issuingRecovery, setIssuingRecovery] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Player | null>(null);
   const [deleteError, setDeleteError] = useState("");
+  const [editTarget, setEditTarget] = useState<Player | null>(null);
+  const [editError, setEditError] = useState("");
+  const [editing, setEditing] = useState(false);
 
   const loadData = useCallback(async () => {
     setLoading(true); setError("");
@@ -127,6 +131,20 @@ function AdminDashboard({ demo, onSignOut }: { demo: boolean; onSignOut: () => v
     }
   }
 
+  async function savePlayerProfile(input: { nickname: string; department: string }) {
+    if (!editTarget) return;
+    setEditing(true); setEditError(""); setError("");
+    try {
+      await adminUpdatePlayerProfile(editTarget.id, input);
+      await loadData();
+      setEditTarget(null);
+    } catch (cause) {
+      setEditError(cause instanceof Error ? cause.message : "แก้ไขข้อมูลผู้เล่นไม่สำเร็จ");
+    } finally {
+      setEditing(false);
+    }
+  }
+
   return <main className={styles.dashboard}>
     <header className={styles.topbar}><div className={styles.adminBrand}><span><Gamepad2 size={20} /></span><div><b>depa TABLE TENNIS</b><small>CONTROL ROOM · 2026</small></div></div><div className={styles.topActions}><Link href="/" aria-label="หน้าผู้เล่น"><ArrowLeft size={18} /></Link><button onClick={signOut} aria-label="ออกจากระบบ"><LogOut size={18} /></button></div></header>
     <div className={styles.dashboardBody}>
@@ -144,10 +162,11 @@ function AdminDashboard({ demo, onSignOut }: { demo: boolean; onSignOut: () => v
       </section>
 
       {draw.pairs.length > 0 && <PairSummary draw={draw} playerMap={playerMap} />}
-      <section className={styles.rosterPanel}><div className={styles.rosterHead}><div><span>PLAYER ROSTER</span><h2>ผู้สมัครทั้งหมด <i>{players.length}</i></h2></div><button onClick={loadData} disabled={loading} aria-label="โหลดรายชื่อใหม่"><RefreshCw size={17} className={loading ? styles.spinning : ""} /></button></div><button className={styles.demoAdd} onClick={() => void mutate(adminFillDemoPlayers)} disabled={mutating || demoCount >= 10}><UserPlus size={17} />{demoCount >= 10 ? "ผู้เล่น Demo ครบ 10 คนแล้ว" : `เติมผู้เล่น Demo ให้ครบ 10 คน (${demoCount}/10)`}</button>{players.length ? <div className={styles.playerList}>{players.map((player, index) => <PlayerRow player={player} index={index} key={player.id} onIssueRecovery={() => { setRecoveryTarget(player); setIssuedRecovery(null); }} onDelete={() => { setDeleteTarget(player); setDeleteError(""); }} />)}</div> : <div className={styles.emptyRoster}><Users size={30} /><b>ยังไม่มีผู้สมัคร</b><span>รายชื่อจะปรากฏหลังมีผู้เล่นลงทะเบียน</span></div>}</section>
+      <section className={styles.rosterPanel}><div className={styles.rosterHead}><div><span>PLAYER ROSTER</span><h2>ผู้สมัครทั้งหมด <i>{players.length}</i></h2></div><button onClick={loadData} disabled={loading} aria-label="โหลดรายชื่อใหม่"><RefreshCw size={17} className={loading ? styles.spinning : ""} /></button></div><button className={styles.demoAdd} onClick={() => void mutate(adminFillDemoPlayers)} disabled={mutating || demoCount >= 10}><UserPlus size={17} />{demoCount >= 10 ? "ผู้เล่น Demo ครบ 10 คนแล้ว" : `เติมผู้เล่น Demo ให้ครบ 10 คน (${demoCount}/10)`}</button>{players.length ? <div className={styles.playerList}>{players.map((player, index) => <PlayerRow player={player} index={index} key={player.id} onEdit={() => { setEditTarget(player); setEditError(""); }} onIssueRecovery={() => { setRecoveryTarget(player); setIssuedRecovery(null); }} onDelete={() => { setDeleteTarget(player); setDeleteError(""); }} />)}</div> : <div className={styles.emptyRoster}><Users size={30} /><b>ยังไม่มีผู้สมัคร</b><span>รายชื่อจะปรากฏหลังมีผู้เล่นลงทะเบียน</span></div>}</section>
     </div>
     {recoveryTarget && <AdminRecoverySheet player={recoveryTarget} issued={issuedRecovery} loading={issuingRecovery} onIssue={() => void issueRecoveryCode()} onClose={closeRecoverySheet} />}
     {deleteTarget && <AdminDeleteSheet player={deleteTarget} loading={mutating} error={deleteError} onDelete={() => void confirmDeletePlayer()} onClose={() => { setDeleteTarget(null); setDeleteError(""); }} />}
+    {editTarget && <AdminEditPlayerSheet key={editTarget.id} player={editTarget} loading={editing} error={editError} onSave={(input) => void savePlayerProfile(input)} onClose={() => { setEditTarget(null); setEditError(""); }} />}
   </main>;
 }
 
@@ -159,7 +178,17 @@ function PairSummary({ draw, playerMap }: { draw: AdminDraw; playerMap: Map<stri
   return <section className={styles.pairPanel}><div className={styles.sectionHead}><div><span>ADMIN ONLY · DRAW V{draw.version}</span><h2>ตัวอย่างคู่ลับหลังบ้าน</h2></div><Eye size={20} /></div><p className={styles.privateNote}><LockKeyhole size={14} /> หน้าผู้เล่นยังไม่เห็นรายชื่อนี้</p><div className={styles.pairList}>{draw.pairs.map((pair, index) => { const first = playerMap.get(pair.player1Id); const second = pair.player2Id ? playerMap.get(pair.player2Id) : null; return <div className={styles.pairRow} key={pair.id}><small>{String(index + 1).padStart(2, "0")}</small><span>{first?.nickname ?? pair.player1Id}</span><b>{second ? "VS" : "BYE"}</b><span>{second?.nickname ?? "ชนะบาย"}</span></div>; })}</div></section>;
 }
 
-function PlayerRow({ player, index, onIssueRecovery, onDelete }: { player: Player; index: number; onIssueRecovery: () => void; onDelete: () => void }) { return <article className={styles.playerRow}><small>{String(index + 1).padStart(2, "0")}</small><div className={styles.rowAvatar}><Image src={player.avatarUrl} alt="" fill unoptimized /></div><div className={styles.playerName}><div><b>{player.nickname}</b>{player.isDemo && <i>DEMO</i>}</div><span>{player.id} · {player.department}</span></div><div className={styles.rowActions}><button className={styles.recoveryAction} type="button" onClick={onIssueRecovery} aria-label={`ออกรหัสกู้คืนใหม่ให้ ${player.nickname}`}><KeyRound size={16} /><span>รหัส</span></button><button className={styles.deleteAction} type="button" onClick={onDelete} aria-label={`ลบ ${player.nickname}`}><Trash2 size={17} /></button></div></article>; }
+function PlayerRow({ player, index, onEdit, onIssueRecovery, onDelete }: { player: Player; index: number; onEdit: () => void; onIssueRecovery: () => void; onDelete: () => void }) { return <article className={styles.playerRow}><small>{String(index + 1).padStart(2, "0")}</small><div className={styles.rowAvatar}><Image src={player.avatarUrl} alt="" fill unoptimized /></div><div className={styles.playerName}><div><b>{player.nickname}</b>{player.isDemo && <i>DEMO</i>}</div><span>{player.id} · {player.department}</span></div><div className={styles.rowActions}><button className={styles.editAction} type="button" onClick={onEdit} aria-label={`แก้ไขข้อมูล ${player.nickname}`}><Pencil size={16} /><span>แก้ไข</span></button><button className={styles.recoveryAction} type="button" onClick={onIssueRecovery} aria-label={`ออกรหัสกู้คืนใหม่ให้ ${player.nickname}`}><KeyRound size={16} /><span>รหัส</span></button><button className={styles.deleteAction} type="button" onClick={onDelete} aria-label={`ลบ ${player.nickname}`}><Trash2 size={17} /></button></div></article>; }
+
+function AdminEditPlayerSheet({ player, loading, error, onSave, onClose }: { player: Player; loading: boolean; error: string; onSave: (input: { nickname: string; department: string }) => void; onClose: () => void }) {
+  const [nickname, setNickname] = useState(player.nickname);
+  const [department, setDepartment] = useState(player.department);
+  function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    onSave({ nickname, department });
+  }
+  return <div className={styles.sheetBackdrop}><motion.section className={styles.recoverySheet} role="dialog" aria-modal="true" aria-labelledby="admin-edit-title" initial={{ y: "100%" }} animate={{ y: 0 }}><button className={styles.sheetClose} type="button" onClick={onClose} disabled={loading} aria-label="ปิด"><X size={20} /></button><div className={styles.editMark}><Pencil size={23} /></div><span className={styles.kicker}>EDIT PLAYER</span><h2 id="admin-edit-title">แก้ไขข้อมูล {player.id}</h2><form className={styles.editForm} onSubmit={submit}><label><span>ชื่อเล่น</span><input value={nickname} onChange={(event) => setNickname(event.target.value)} minLength={2} maxLength={40} required autoFocus /></label><label><span>ฝ่าย/ส่วนงาน</span><input value={department} onChange={(event) => setDepartment(event.target.value)} maxLength={80} required /></label>{error && <div className={styles.authError}><CircleAlert size={16} />{error}</div>}<button className={styles.issueButton} type="submit" disabled={loading}><Pencil size={18} />{loading ? "กำลังบันทึก..." : "บันทึกการแก้ไข"}</button><button className={styles.cancelButton} type="button" onClick={onClose} disabled={loading}>ยกเลิก</button></form></motion.section></div>;
+}
 
 function AdminDeleteSheet({ player, loading, error, onDelete, onClose }: { player: Player; loading: boolean; error: string; onDelete: () => void; onClose: () => void }) {
   return <div className={styles.sheetBackdrop}><motion.section className={styles.recoverySheet} role="dialog" aria-modal="true" aria-labelledby="admin-delete-title" initial={{ y: "100%" }} animate={{ y: 0 }}><button className={styles.sheetClose} type="button" onClick={onClose} disabled={loading} aria-label="ปิด"><X size={20} /></button><div className={styles.deleteMark}><Trash2 size={24} /></div><span className={styles.kicker}>REMOVE PLAYER</span><h2 id="admin-delete-title">ลบ {player.nickname} ออกจากการแข่งขัน?</h2><p className={styles.recoveryWarning}>การลบจะยกเลิกผลจับคู่เดิมและปิดการเปิดเผยคู่ทันที หลังแก้รายชื่อแล้วต้องสุ่มและล็อกคู่ใหม่</p>{error && <div className={styles.authError}><CircleAlert size={16} />{error}</div>}<button className={styles.deleteConfirmButton} type="button" onClick={onDelete} disabled={loading}><Trash2 size={18} />{loading ? "กำลังลบ..." : "ยืนยันลบผู้เล่น"}</button><button className={styles.cancelButton} type="button" onClick={onClose} disabled={loading}>ยกเลิก</button></motion.section></div>;

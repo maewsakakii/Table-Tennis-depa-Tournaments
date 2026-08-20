@@ -241,7 +241,8 @@ begin
     raise exception 'at least two players are required';
   end if;
 
-  delete from public.private_matches;
+  delete from public.private_matches m
+  where m.draw_version <= next_version;
   index_number := 1;
   while index_number <= array_length(player_ids, 1) loop
     insert into public.private_matches (draw_version, player1_id, player2_id)
