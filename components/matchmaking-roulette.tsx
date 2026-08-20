@@ -1,6 +1,6 @@
 "use client";
 
-import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { motion, useReducedMotion } from "framer-motion";
 import { Check, FastForward, Radio, Trophy, UserRound } from "lucide-react";
 import Image from "next/image";
 import { useEffect, useMemo, useState } from "react";
@@ -84,6 +84,7 @@ export function MatchmakingRoulette({
   }, [onFinish]);
 
   const current = sequence[frame] ?? { left: player, right: reveal.opponent ?? player };
+  const reelDelay = getReelDelay(frame, roster.length);
   const progress = spinning ? Math.round(((frame + 1) / Math.max(sequence.length, 1)) * 100) : 100;
 
   return (
@@ -105,13 +106,11 @@ export function MatchmakingRoulette({
         <div className={styles.machine}>
           <div className={styles.machineTop} aria-hidden="true"><i /><span>PLAYER ROULETTE</span><i /></div>
           <div className={styles.versus}>
-            <AnimatePresence mode="popLayout" initial={false}>
-              {spinning ? (
-                <ReelSlot key={`left-${frame}-${current.left.id}`} player={current.left} side="left" />
-              ) : (
-                <PlayerSlot key={`final-left-${player.id}`} player={player} side="left" onSelectPlayer={onSelectPlayer} reduceMotion={Boolean(reduceMotion)} />
-              )}
-            </AnimatePresence>
+            {spinning ? (
+              <ReelSlot player={current.left} side="left" delay={reelDelay} />
+            ) : (
+              <PlayerSlot key={`final-left-${player.id}`} player={player} side="left" onSelectPlayer={onSelectPlayer} reduceMotion={Boolean(reduceMotion)} />
+            )}
 
             <motion.div
               className={`${styles.vs} ${spinning ? styles.vsSpinning : styles.vsImpact}`}
@@ -122,17 +121,15 @@ export function MatchmakingRoulette({
               {reveal.bye && !spinning ? <Trophy size={30} /> : "VS"}
             </motion.div>
 
-            <AnimatePresence mode="popLayout" initial={false}>
-              {spinning ? (
-                <ReelSlot key={`right-${frame}-${current.right.id}`} player={current.right} side="right" />
-              ) : reveal.opponent ? (
-                <PlayerSlot key={`final-right-${reveal.opponent.id}`} player={reveal.opponent} side="right" onSelectPlayer={onSelectPlayer} reduceMotion={Boolean(reduceMotion)} />
-              ) : (
-                <motion.div key="bye" className={`${styles.playerSlot} ${styles.byeSlot}`} initial={reduceMotion ? false : { opacity: 0, scale: 0.72, x: 30 }} animate={{ opacity: 1, scale: 1, x: 0 }} transition={reduceMotion ? { duration: 0 } : { type: "spring", stiffness: 300, damping: 18 }}>
-                  <Trophy size={34} /><b>BYE</b><span>ผ่านเข้ารอบอัตโนมัติ</span>
-                </motion.div>
-              )}
-            </AnimatePresence>
+            {spinning ? (
+              <ReelSlot player={current.right} side="right" delay={reelDelay} />
+            ) : reveal.opponent ? (
+              <PlayerSlot key={`final-right-${reveal.opponent.id}`} player={reveal.opponent} side="right" onSelectPlayer={onSelectPlayer} reduceMotion={Boolean(reduceMotion)} />
+            ) : (
+              <motion.div className={`${styles.playerSlot} ${styles.byeSlot}`} initial={reduceMotion ? false : { opacity: 0, scale: 0.72, x: 30 }} animate={{ opacity: 1, scale: 1, x: 0 }} transition={reduceMotion ? { duration: 0 } : { type: "spring", stiffness: 300, damping: 18 }}>
+                <Trophy size={34} /><b>BYE</b><span>ผ่านเข้ารอบอัตโนมัติ</span>
+              </motion.div>
+            )}
           </div>
           <div className={styles.machineBase} aria-hidden="true"><span>{spinning ? "SHUFFLING ALL PLAYERS" : "RESULT CONFIRMED"}</span></div>
         </div>
@@ -194,11 +191,16 @@ function hashSeed(value: string) {
   return hash;
 }
 
-function ReelSlot({ player, side }: { player: PublicPlayer; side: "left" | "right" }) {
+/** The reel element is never remounted: only its face swaps, so the spin stays smooth. */
+function ReelSlot({ player, side, delay }: { player: PublicPlayer; side: "left" | "right"; delay: number }) {
   return (
-    <motion.article className={`${styles.playerSlot} ${styles.reelSlot} ${styles[side]}`} aria-hidden="true" initial={{ opacity: 0, y: side === "left" ? -38 : 38, scale: 0.94 }} animate={{ opacity: 1, y: 0, scale: 1 }} exit={{ opacity: 0, y: side === "left" ? 38 : -38, scale: 0.94 }} transition={{ duration: 0.075, ease: "linear" }}>
+    <article
+      className={`${styles.playerSlot} ${styles.reelSlot} ${styles[side]}`}
+      style={{ ["--reel-delay" as string]: `${delay}ms` }}
+      aria-hidden="true"
+    >
       <PlayerFace player={player} />
-    </motion.article>
+    </article>
   );
 }
 
