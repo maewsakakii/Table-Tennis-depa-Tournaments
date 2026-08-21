@@ -518,6 +518,18 @@ test("player public IDs are allocated around numbers the roster already uses", (
   assert.doesNotMatch(sql, /drop\s+(table|column|sequence)/i);
 });
 
+test("a freed top player ID is handed out again instead of skipped", () => {
+  const sql = readFileSync(new URL("../supabase/migrations/009_public_id_follows_roster.sql", import.meta.url), "utf8");
+  assert.match(sql, /create or replace function public\.allocate_player_public_id/i);
+  assert.match(sql, /max\(pg_catalog\.substring\(p\.public_id, '\^DT-\(\[0-9\]\+\)\$'\)::bigint\), 0\) \+ 1/i);
+  assert.match(sql, /exit when not exists \(select 1 from public\.players p where p\.public_id = candidate\)/i);
+  assert.match(sql, /alter column public_id set default public\.allocate_player_public_id\(\)/i);
+  assert.match(sql, /set search_path = pg_catalog/i);
+  // The allocation itself must not come from the forward-only sequence any more.
+  assert.doesNotMatch(sql, /candidate\s*:=\s*'DT-'\s*\|\|\s*pg_catalog\.lpad\(nextval/i);
+  assert.doesNotMatch(sql, /drop\s+(table|column|sequence)/i);
+});
+
 test("local full bracket persistence is compact and player snapshots are recovery-gated", async () => {
   const storage = new MemoryStorage();
   Object.defineProperty(globalThis, "window", {
