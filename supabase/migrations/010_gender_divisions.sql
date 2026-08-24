@@ -53,7 +53,7 @@ declare
   next_version integer;
   ungendered integer;
   divisions text[] := array['male', 'female'];
-  division text;
+  target_division text;   -- named apart from bracket_matches.division to avoid an ambiguous reference
   player_ids uuid[];
   player_count integer;
   bracket_size integer;
@@ -75,12 +75,12 @@ begin
   delete from public.private_matches pm where pm.draw_version <= next_version;
   delete from public.bracket_matches bm where bm.draw_version <= next_version;
 
-  foreach division in array divisions loop
+  foreach target_division in array divisions loop
     select coalesce(pg_catalog.array_agg(p.id order by extensions.gen_random_uuid()), array[]::uuid[])
-      into player_ids from public.players p where p.gender = division;
+      into player_ids from public.players p where p.gender = target_division;
     player_count := coalesce(pg_catalog.array_length(player_ids, 1), 0);
-    if player_count < 2 then raise exception 'division % needs at least 2 players (has %)', division, player_count; end if;
-    if player_count > 64 then raise exception 'division % exceeds 64 players', division; end if;
+    if player_count < 2 then raise exception 'division % needs at least 2 players (has %)', target_division, player_count; end if;
+    if player_count > 64 then raise exception 'division % exceeds 64 players', target_division; end if;
 
     bracket_size := 2; round_count := 1;
     while bracket_size < player_count loop bracket_size := bracket_size * 2; round_count := round_count + 1; end loop;
@@ -99,15 +99,15 @@ begin
           if is_bye then
             sole_player := player_ids[player_index]; player_index := player_index + 1;
             insert into public.bracket_matches (draw_version, division, round_number, match_position, player1_id, status, winner_id)
-            values (next_version, division, round_number, match_position, sole_player, 'bye', sole_player);
+            values (next_version, target_division, round_number, match_position, sole_player, 'bye', sole_player);
           else
             insert into public.bracket_matches (draw_version, division, round_number, match_position, player1_id, player2_id, status)
-            values (next_version, division, round_number, match_position, player_ids[player_index], player_ids[player_index + 1], 'ready');
+            values (next_version, target_division, round_number, match_position, player_ids[player_index], player_ids[player_index + 1], 'ready');
             player_index := player_index + 2;
           end if;
         else
           insert into public.bracket_matches (draw_version, division, round_number, match_position, status)
-          values (next_version, division, round_number, match_position, 'waiting');
+          values (next_version, target_division, round_number, match_position, 'waiting');
         end if;
       end loop;
     end loop;
@@ -116,30 +116,30 @@ begin
     set next_match_id = next_match.id,
         next_slot = case when current_match.match_position % 2 = 0 then 1 else 2 end
     from public.bracket_matches next_match
-    where current_match.draw_version = next_version and current_match.division = division
+    where current_match.draw_version = next_version and current_match.division = target_division
       and current_match.round_number < round_count
-      and next_match.draw_version = next_version and next_match.division = division
+      and next_match.draw_version = next_version and next_match.division = target_division
       and next_match.round_number = current_match.round_number + 1
       and next_match.match_position = current_match.match_position / 2;
 
     update public.bracket_matches current_match
     set source1_match_id = source1.id, source2_match_id = source2.id
     from public.bracket_matches source1, public.bracket_matches source2
-    where current_match.draw_version = next_version and current_match.division = division and current_match.round_number > 1
-      and source1.draw_version = next_version and source1.division = division
+    where current_match.draw_version = next_version and current_match.division = target_division and current_match.round_number > 1
+      and source1.draw_version = next_version and source1.division = target_division
       and source1.round_number = current_match.round_number - 1 and source1.match_position = current_match.match_position * 2
-      and source2.draw_version = next_version and source2.division = division
+      and source2.draw_version = next_version and source2.division = target_division
       and source2.round_number = current_match.round_number - 1 and source2.match_position = current_match.match_position * 2 + 1;
 
     update public.bracket_matches next_match
     set player1_id = source.winner_id
     from public.bracket_matches source
-    where source.draw_version = next_version and source.division = division and source.status = 'bye'
+    where source.draw_version = next_version and source.division = target_division and source.status = 'bye'
       and source.next_slot = 1 and next_match.id = source.next_match_id;
     update public.bracket_matches next_match
     set player2_id = source.winner_id
     from public.bracket_matches source
-    where source.draw_version = next_version and source.division = division and source.status = 'bye'
+    where source.draw_version = next_version and source.division = target_division and source.status = 'bye'
       and source.next_slot = 2 and next_match.id = source.next_match_id;
   end loop;
 
