@@ -104,6 +104,8 @@ export type TournamentSnapshot = KnockoutBracket & {
 
 export type PlayerTournamentSnapshot = TournamentSnapshot & {
   playerId: string;
+  /** The division this player competes in. Null before the draw places them. */
+  division: Division | null;
   currentMatchId: string | null;
   currentOpponentId: string | null;
   bye: boolean;
