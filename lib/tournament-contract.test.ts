@@ -549,6 +549,26 @@ test("gender divisions migration splits the draw and blocks an unassigned roster
   assert.match(sql, /grant execute on function public\.admin_set_player_gender\(text, text\) to authenticated/i);
 });
 
+test("admins can replace a player's avatar with a validated project object", () => {
+  const sql = readFileSync(new URL("../supabase/migrations/011_admin_update_player_avatar.sql", import.meta.url), "utf8");
+  assert.match(sql, /create or replace function public\.admin_update_player_avatar\(p_public_id text, p_avatar_url text\)/i);
+  assert.match(sql, /admin_update_player_avatar[\s\S]*is_tournament_admin/i);
+  assert.match(sql, /avatar URL must belong to this Supabase project/i);
+  assert.match(sql, /avatar object does not exist/i);
+  assert.match(sql, /avatar object is already registered/i);
+  assert.match(sql, /update public\.players p set avatar_url = p_avatar_url/i);
+  assert.match(sql, /demo_slot smallint/i);
+  assert.match(sql, /revoke all on function public\.admin_update_player_avatar\(text, text\) from public, anon/i);
+  assert.match(sql, /grant execute on function public\.admin_update_player_avatar\(text, text\) to authenticated/i);
+});
+
+// The gender RPC must return demo_slot as smallint to match the players column type.
+test("admin_set_player_gender returns demo_slot as smallint", () => {
+  const sql = readFileSync(new URL("../supabase/migrations/010_gender_divisions.sql", import.meta.url), "utf8");
+  assert.match(sql, /admin_set_player_gender[\s\S]*demo_slot smallint\)/i);
+  assert.doesNotMatch(sql, /admin_set_player_gender[\s\S]*demo_slot integer\)/i);
+});
+
 test("a freed top player ID is handed out again instead of skipped", () => {
   const sql = readFileSync(new URL("../supabase/migrations/009_public_id_follows_roster.sql", import.meta.url), "utf8");
   assert.match(sql, /create or replace function public\.allocate_player_public_id/i);

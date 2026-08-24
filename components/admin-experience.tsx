@@ -1,10 +1,10 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { ArrowLeft, CircleAlert, Copy, Eye, EyeOff, Gamepad2, KeyRound, LockKeyhole, LogOut, Pencil, Radio, RefreshCw, Shuffle, Sparkles, Trash2, Trophy, UserPlus, Users, Wifi, X } from "lucide-react";
+import { ArrowLeft, CircleAlert, Copy, Eye, EyeOff, Gamepad2, ImagePlus, KeyRound, LockKeyhole, LogOut, Pencil, Radio, RefreshCw, Shuffle, Sparkles, Trash2, Trophy, UserPlus, Users, Wifi, X } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
-import { FormEvent, useCallback, useEffect, useState } from "react";
+import { ChangeEvent, FormEvent, useCallback, useEffect, useRef, useState } from "react";
 import { PlayerProfileSheet } from "@/components/player-profile-sheet";
 import { ScoreEntrySheet } from "@/components/score-entry-sheet";
 import { TournamentBracket } from "@/components/tournament-bracket";
@@ -15,6 +15,7 @@ import {
   adminDeletePlayer,
   adminFillDemoPlayers,
   adminUpdatePlayerProfile,
+  adminUpdatePlayerAvatar,
   adminSetPlayerGender,
   type AdminSessionState,
   generateTournamentBracket,
@@ -28,6 +29,7 @@ import {
   subscribeToTournamentState,
   updateTournamentControls,
 } from "@/lib/tournament-store";
+import { isAcceptedAvatar } from "@/lib/local-avatar";
 import type { BracketMatch, Division, Player, PublicPlayer, TournamentSnapshot, TournamentState } from "@/lib/types";
 import styles from "./admin-experience.module.css";
 
@@ -157,11 +159,12 @@ function AdminDashboard({ demo, onSignOut }: { demo: boolean; onSignOut: () => v
     }
   }
 
-  async function savePlayerProfile(input: { nickname: string; department: string }) {
+  async function savePlayerProfile(input: { nickname: string; department: string; avatarFile: File | null }) {
     if (!editTarget) return;
     setEditing(true); setEditError(""); setError("");
     try {
-      await adminUpdatePlayerProfile(editTarget.id, input);
+      await adminUpdatePlayerProfile(editTarget.id, { nickname: input.nickname, department: input.department });
+      if (input.avatarFile) await adminUpdatePlayerAvatar(editTarget.id, input.avatarFile);
       await loadData();
       setEditTarget(null);
     } catch (cause) {
@@ -262,14 +265,32 @@ function AdminRosterSheet({ players, loading, mutating, demoCount, filter, onFil
 
 function PlayerRow({ player, index, disabled, onSetGender, onEdit, onIssueRecovery, onDelete }: { player: Player; index: number; disabled: boolean; onSetGender: (gender: Division) => void; onEdit: () => void; onIssueRecovery: () => void; onDelete: () => void }) { return <article className={`${styles.playerRow} ${player.gender ? "" : styles.playerRowUnset}`}><small>{String(index + 1).padStart(2, "0")}</small><div className={styles.rowAvatar}><Image src={player.avatarUrl} alt="" fill unoptimized /></div><div className={styles.playerName}><div><b>{player.nickname}</b>{player.isDemo && <i>DEMO</i>}</div><span>{player.id} · {player.department}</span></div><div className={styles.genderPick} role="group" aria-label={`เพศของ ${player.nickname}`}><button type="button" className={player.gender === "male" ? styles.genderOn : ""} disabled={disabled} onClick={() => onSetGender("male")} aria-pressed={player.gender === "male"}>ชาย</button><button type="button" className={player.gender === "female" ? styles.genderOnF : ""} disabled={disabled} onClick={() => onSetGender("female")} aria-pressed={player.gender === "female"}>หญิง</button></div><div className={styles.rowActions}><button className={styles.editAction} type="button" onClick={onEdit} aria-label={`แก้ไขข้อมูล ${player.nickname}`}><Pencil size={16} /><span>แก้ไข</span></button><button className={styles.recoveryAction} type="button" onClick={onIssueRecovery} aria-label={`ออกรหัสกู้คืนใหม่ให้ ${player.nickname}`}><KeyRound size={16} /><span>รหัส</span></button><button className={styles.deleteAction} type="button" onClick={onDelete} aria-label={`ลบ ${player.nickname}`}><Trash2 size={17} /></button></div></article>; }
 
-function AdminEditPlayerSheet({ player, loading, error, onSave, onClose }: { player: Player; loading: boolean; error: string; onSave: (input: { nickname: string; department: string }) => void; onClose: () => void }) {
+function AdminEditPlayerSheet({ player, loading, error, onSave, onClose }: { player: Player; loading: boolean; error: string; onSave: (input: { nickname: string; department: string; avatarFile: File | null }) => void; onClose: () => void }) {
   const [nickname, setNickname] = useState(player.nickname);
   const [department, setDepartment] = useState(player.department);
+  const [avatarFile, setAvatarFile] = useState<File | null>(null);
+  const [preview, setPreview] = useState(player.avatarUrl);
+  const [avatarError, setAvatarError] = useState("");
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => () => { if (preview.startsWith("blob:")) URL.revokeObjectURL(preview); }, [preview]);
+
+  function pickAvatar(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) return;
+    if (!isAcceptedAvatar(file)) { setAvatarError("รองรับเฉพาะไฟล์รูปภาพเท่านั้น"); return; }
+    if (file.size > 10 * 1024 * 1024) { setAvatarError("รูปต้องมีขนาดไม่เกิน 10 MB"); return; }
+    setAvatarError("");
+    setAvatarFile(file);
+    setPreview((current) => { if (current.startsWith("blob:")) URL.revokeObjectURL(current); return URL.createObjectURL(file); });
+  }
+
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    onSave({ nickname, department });
+    onSave({ nickname, department, avatarFile });
   }
-  return <div className={styles.sheetBackdrop}><motion.section className={styles.recoverySheet} role="dialog" aria-modal="true" aria-labelledby="admin-edit-title" initial={{ y: "100%" }} animate={{ y: 0 }}><button className={styles.sheetClose} type="button" onClick={onClose} disabled={loading} aria-label="ปิด"><X size={20} /></button><div className={styles.editMark}><Pencil size={23} /></div><span className={styles.kicker}>EDIT PLAYER</span><h2 id="admin-edit-title">แก้ไขข้อมูล {player.id}</h2><form className={styles.editForm} onSubmit={submit}><label><span>ชื่อเล่น</span><input value={nickname} onChange={(event) => setNickname(event.target.value)} minLength={2} maxLength={40} required autoFocus /></label><label><span>ฝ่าย/ส่วนงาน</span><input value={department} onChange={(event) => setDepartment(event.target.value)} maxLength={80} required /></label>{error && <div className={styles.authError}><CircleAlert size={16} />{error}</div>}<button className={styles.issueButton} type="submit" disabled={loading}><Pencil size={18} />{loading ? "กำลังบันทึก..." : "บันทึกการแก้ไข"}</button><button className={styles.cancelButton} type="button" onClick={onClose} disabled={loading}>ยกเลิก</button></form></motion.section></div>;
+  return <div className={styles.sheetBackdrop}><motion.section className={styles.recoverySheet} role="dialog" aria-modal="true" aria-labelledby="admin-edit-title" initial={{ y: "100%" }} animate={{ y: 0 }}><button className={styles.sheetClose} type="button" onClick={onClose} disabled={loading} aria-label="ปิด"><X size={20} /></button><div className={styles.editMark}><Pencil size={23} /></div><span className={styles.kicker}>EDIT PLAYER</span><h2 id="admin-edit-title">แก้ไขข้อมูล {player.id}</h2><form className={styles.editForm} onSubmit={submit}><div className={styles.editAvatar}><div className={styles.editAvatarImg}><Image src={preview} alt={`รูปของ ${player.nickname}`} fill sizes="88px" unoptimized /></div><button type="button" className={styles.editAvatarBtn} onClick={() => fileRef.current?.click()} disabled={loading}><ImagePlus size={16} /> {avatarFile ? "เลือกรูปใหม่แล้ว · เปลี่ยนอีกครั้ง" : "เปลี่ยนรูปโปรไฟล์"}</button><input ref={fileRef} type="file" accept="image/*,.heic,.heif" onChange={pickAvatar} hidden /></div>{avatarError && <div className={styles.authError}><CircleAlert size={16} />{avatarError}</div>}<label><span>ชื่อเล่น</span><input value={nickname} onChange={(event) => setNickname(event.target.value)} minLength={2} maxLength={40} required autoFocus /></label><label><span>ฝ่าย/ส่วนงาน</span><input value={department} onChange={(event) => setDepartment(event.target.value)} maxLength={80} required /></label>{error && <div className={styles.authError}><CircleAlert size={16} />{error}</div>}<button className={styles.issueButton} type="submit" disabled={loading}><Pencil size={18} />{loading ? "กำลังบันทึก..." : "บันทึกการแก้ไข"}</button><button className={styles.cancelButton} type="button" onClick={onClose} disabled={loading}>ยกเลิก</button></form></motion.section></div>;
 }
 
 function AdminDeleteSheet({ player, loading, error, onDelete, onClose }: { player: Player; loading: boolean; error: string; onDelete: () => void; onClose: () => void }) {
