@@ -16,20 +16,20 @@ const snapshot: TournamentSnapshot = {
       player1Id: `DT-${position * 2 + 1}`, player2Id: `DT-${position * 2 + 2}`,
       player1PartnerId: null, player2PartnerId: null, source1MatchId: null, source2MatchId: null, nextMatchId: `r2-${Math.floor(position / 2)}`,
       nextSlot: position % 2 === 0 ? 1 as const : 2 as const,
-      score1: null, score2: null, winnerId: null, status: "ready" as const, revision: 0, division: "male" as const,
+      score1: null, score2: null, winnerId: null, status: "ready" as const, revision: 0, division: "male" as const, scheduledDate: null,
     })),
     ...Array.from({ length: 2 }, (_, position) => ({
       id: `r2-${position}`, version: 2, round: 2, position,
       player1Id: null, player2Id: null,
       player1PartnerId: null, player2PartnerId: null, source1MatchId: `r1-${position * 2}`, source2MatchId: `r1-${position * 2 + 1}`,
       nextMatchId: "r3-0", nextSlot: position === 0 ? 1 as const : 2 as const,
-      score1: null, score2: null, winnerId: null, status: "waiting" as const, revision: 0, division: "male" as const,
+      score1: null, score2: null, winnerId: null, status: "waiting" as const, revision: 0, division: "male" as const, scheduledDate: null,
     })),
     {
       id: "r3-0", version: 2, round: 3, position: 0,
       player1Id: null, player2Id: null, player1PartnerId: null, player2PartnerId: null, source1MatchId: "r2-0", source2MatchId: "r2-1",
       nextMatchId: null, nextSlot: null, score1: null, score2: null,
-      winnerId: null, status: "waiting", revision: 0, division: "male",
+      winnerId: null, status: "waiting", revision: 0, division: "male", scheduledDate: null,
     },
   ],
 };
@@ -56,10 +56,10 @@ test("buildBracketRounds filters to one division and derives that division's rou
   const twoDivisions: TournamentSnapshot = {
     version: 3, bracketRevision: 0, roundCount: 2, players: [],
     matches: [
-      { id: "m-f", version: 3, round: 1, position: 0, player1Id: "DT-01", player2Id: "DT-02", player1PartnerId: null, player2PartnerId: null, source1MatchId: null, source2MatchId: null, nextMatchId: null, nextSlot: null, score1: null, score2: null, winnerId: null, status: "ready", revision: 0, division: "female" },
-      { id: "m-m1", version: 3, round: 1, position: 0, player1Id: "DT-03", player2Id: "DT-04", player1PartnerId: null, player2PartnerId: null, source1MatchId: null, source2MatchId: null, nextMatchId: "m-m2", nextSlot: 1, score1: null, score2: null, winnerId: null, status: "ready", revision: 0, division: "male" },
-      { id: "m-m1b", version: 3, round: 1, position: 1, player1Id: "DT-05", player2Id: "DT-06", player1PartnerId: null, player2PartnerId: null, source1MatchId: null, source2MatchId: null, nextMatchId: "m-m2", nextSlot: 2, score1: null, score2: null, winnerId: null, status: "ready", revision: 0, division: "male" },
-      { id: "m-m2", version: 3, round: 2, position: 0, player1Id: null, player2Id: null, player1PartnerId: null, player2PartnerId: null, source1MatchId: "m-m1", source2MatchId: "m-m1b", nextMatchId: null, nextSlot: null, score1: null, score2: null, winnerId: null, status: "waiting", revision: 0, division: "male" },
+      { id: "m-f", version: 3, round: 1, position: 0, player1Id: "DT-01", player2Id: "DT-02", player1PartnerId: null, player2PartnerId: null, source1MatchId: null, source2MatchId: null, nextMatchId: null, nextSlot: null, score1: null, score2: null, winnerId: null, status: "ready", revision: 0, division: "female", scheduledDate: null },
+      { id: "m-m1", version: 3, round: 1, position: 0, player1Id: "DT-03", player2Id: "DT-04", player1PartnerId: null, player2PartnerId: null, source1MatchId: null, source2MatchId: null, nextMatchId: "m-m2", nextSlot: 1, score1: null, score2: null, winnerId: null, status: "ready", revision: 0, division: "male", scheduledDate: null },
+      { id: "m-m1b", version: 3, round: 1, position: 1, player1Id: "DT-05", player2Id: "DT-06", player1PartnerId: null, player2PartnerId: null, source1MatchId: null, source2MatchId: null, nextMatchId: "m-m2", nextSlot: 2, score1: null, score2: null, winnerId: null, status: "ready", revision: 0, division: "male", scheduledDate: null },
+      { id: "m-m2", version: 3, round: 2, position: 0, player1Id: null, player2Id: null, player1PartnerId: null, player2PartnerId: null, source1MatchId: "m-m1", source2MatchId: "m-m1b", nextMatchId: null, nextSlot: null, score1: null, score2: null, winnerId: null, status: "waiting", revision: 0, division: "male", scheduledDate: null },
     ],
   };
   const male = buildBracketRounds(twoDivisions, "male");

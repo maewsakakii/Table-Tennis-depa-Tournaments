@@ -1,4 +1,5 @@
 import type { BracketMatch, Division, KnockoutBracket, MatchHistoryEntry } from "./types.ts";
+import { defaultMatchDate } from "./match-date.ts";
 
 export type ShufflePlayers = (playerIds: string[]) => string[];
 
@@ -68,6 +69,7 @@ export function generateKnockoutBracket(
         player1PartnerId: null, player2PartnerId: null,
         score1: null, score2: null, winnerId: null,
         status: "waiting", revision: 0,
+        scheduledDate: defaultMatchDate(matches.length),
       });
     }
   }

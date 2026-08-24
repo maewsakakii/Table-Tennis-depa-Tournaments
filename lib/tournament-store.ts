@@ -479,6 +479,7 @@ function mapBracketMatch(row: Record<string, unknown>): BracketMatch {
     status: String(row.status) as BracketMatch["status"],
     revision: Number(row.revision ?? 0),
     division: toDivision(row.division),
+    scheduledDate: row.scheduledDate ? String(row.scheduledDate).slice(0, 10) : row.scheduled_date ? String(row.scheduled_date).slice(0, 10) : null,
   };
 }
 
@@ -588,6 +589,41 @@ export async function getAdminTournamentSnapshot(): Promise<TournamentSnapshot> 
   const { data, error } = await supabase.rpc("admin_get_tournament_snapshot");
   if (error) throw new Error(error.message);
   return mapSnapshotPayload(data);
+}
+
+export async function getPublicTournamentSnapshot(): Promise<TournamentSnapshot> {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) {
+    assertAvailableBackend();
+    const state = await getTournamentState();
+    if (!state.revealOpen) return { ...emptyBracket(state.version), players: [] };
+    return getAdminTournamentSnapshot();
+  }
+  const { data, error } = await supabase.rpc("get_public_tournament_snapshot");
+  if (error) throw new Error(error.message);
+  return mapSnapshotPayload(data);
+}
+
+export async function updateMatchDate(matchId: string, scheduledDate: string | null): Promise<TournamentSnapshot> {
+  const cleanDate = scheduledDate?.trim() || null;
+  const supabase = getSupabaseBrowserClient();
+  if (supabase) {
+    const { error } = await supabase.rpc("admin_update_match_date", {
+      p_match_id: matchId,
+      p_scheduled_date: cleanDate,
+    });
+    if (error) throw new Error(error.message);
+    return getAdminTournamentSnapshot();
+  }
+  assertAvailableBackend();
+  const state = await getTournamentState();
+  const bracket = readLocalBracket(state.version);
+  if (!bracket.matches.some((match) => match.id === matchId)) throw new Error("ไม่พบคู่แข่งขันที่เลือก");
+  const matches = bracket.matches.map((match) => match.id === matchId ? { ...match, scheduledDate: cleanDate } : match);
+  const updated = { ...bracket, bracketRevision: bracket.bracketRevision + 1, matches };
+  writeLocalBracket(updated);
+  window.dispatchEvent(new CustomEvent("office-smash-bracket", { detail: updated }));
+  return { ...updated, players: readLocalPlayers().map(toPublicPlayer) };
 }
 
 export async function getPlayerTournamentSnapshot(): Promise<PlayerTournamentSnapshot> {

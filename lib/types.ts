@@ -85,6 +85,8 @@ export type BracketMatch = {
   status: BracketMatchStatus;
   revision: number;
   division: Division;
+  /** ISO calendar date (YYYY-MM-DD) chosen by the organizer. */
+  scheduledDate: string | null;
 };
 
 export type KnockoutBracket = {

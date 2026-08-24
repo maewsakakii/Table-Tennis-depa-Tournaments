@@ -26,6 +26,7 @@ import {
   onlineModeLabel,
   recordMatchScore,
   subscribeToTournamentState,
+  updateMatchDate,
   updateTournamentControls,
 } from "@/lib/tournament-store";
 import { isAcceptedAvatar } from "@/lib/local-avatar";
@@ -184,8 +185,18 @@ function AdminDashboard({ demo, onSignOut }: { demo: boolean; onSignOut: () => v
     setScoreTarget(null);
   }
 
+  async function saveMatchDate(match: BracketMatch, value: string | null) {
+    setError("");
+    setSnapshot((current) => ({ ...current, matches: current.matches.map((item) => item.id === match.id ? { ...item, scheduledDate: value } : item) }));
+    try { setSnapshot(await updateMatchDate(match.id, value)); }
+    catch (cause) {
+      setSnapshot((current) => ({ ...current, matches: current.matches.map((item) => item.id === match.id ? { ...item, scheduledDate: match.scheduledDate } : item) }));
+      setError(cause instanceof Error ? cause.message : "บันทึกวันแข่งขันไม่สำเร็จ");
+    }
+  }
+
   return <main className={styles.dashboard}>
-    <header className={styles.topbar}><div className={styles.adminBrand}><span><Gamepad2 size={20} /></span><div><b>depa TABLE TENNIS</b><small>CONTROL ROOM · 2026</small></div></div><div className={styles.topActions}><Link href="/" aria-label="หน้าผู้เล่น"><ArrowLeft size={18} /></Link><button onClick={signOut} aria-label="ออกจากระบบ"><LogOut size={18} /></button></div></header>
+    <header className={styles.topbar}><div className={styles.adminBrand}><span><Gamepad2 size={20} /></span><div><b>depa TABLE TENNIS</b><small>CONTROL ROOM · 2026</small></div></div><div className={styles.topActions}><Link href="/brackets" aria-label="หน้าสายการแข่งขันสาธารณะ"><Trophy size={18} /></Link><Link href="/" aria-label="หน้าผู้เล่น"><ArrowLeft size={18} /></Link><button onClick={signOut} aria-label="ออกจากระบบ"><LogOut size={18} /></button></div></header>
     <div className={styles.dashboardBody}>
       <section className={styles.dashboardTitle}><div><span className={styles.kicker}>TOURNAMENT OPERATIONS</span><h1>Match Control</h1></div><div className={`${styles.modeBadge} ${demo ? styles.demo : ""}`}><Wifi size={14} />{onlineModeLabel()}</div></section>
       {demo && <div className={styles.demoNotice}><Sparkles size={17} /><div><b>กำลังใช้ Local Demo Mode</b><span>ข้อมูลทำงานเฉพาะเบราว์เซอร์นี้ ไม่ใช่ระบบออนไลน์</span></div></div>}
@@ -210,7 +221,7 @@ function AdminDashboard({ demo, onSignOut }: { demo: boolean; onSignOut: () => v
         <button className={styles.rosterOpenBtn} type="button" onClick={() => { setRosterFilter("all"); setRosterOpen(true); }}><Users size={16} /> ดูและจัดการรายชื่อ</button>
       </section>
 
-      <section className={styles.bracketPanel}><div className={styles.sectionHead}><div><span>LIVE BRACKET · REV {snapshot.bracketRevision}</span><h2>สายการแข่งขันรอบที่ 1 ทั้งหมดและรอบถัดไป</h2></div><Trophy size={20} /></div>{snapshot.matches.length > 0 && <p className={styles.privateNote}><LockKeyhole size={14} /> {readyMatchCount ? `พร้อมกรอกคะแนน ${readyMatchCount} คู่ · แตะการ์ดคู่นั้นเพื่อเปิดช่องกรอก` : "ยังไม่มีคู่ที่พร้อมกรอกคะแนน · คู่ที่ชนะบายจะข้ามไปรอบถัดไปเอง"}</p>}{snapshot.matches.length > 0 && <div className={styles.divisionTabs} role="tablist" aria-label="เลือกสายการแข่งขัน">{([["male", "สายชาย"], ["female", "สายหญิง"], ["mixed", "คู่ผสม"]] as Array<[Division, string]>).map(([key, label]) => <button key={key} type="button" role="tab" aria-selected={bracketDivision === key} className={bracketDivision === key ? styles.divisionActive : ""} onClick={() => setBracketDivision(key)}>{label}<small>{snapshot.matches.filter((match) => match.division === key && match.round === 1).length} คู่แรก</small></button>)}</div>}<TournamentBracket snapshot={snapshot} admin division={bracketDivision} onSelectMatch={setScoreTarget} onSelectPlayer={setProfileTarget} /></section>
+      <section className={styles.bracketPanel}><div className={styles.sectionHead}><div><span>LIVE BRACKET · REV {snapshot.bracketRevision}</span><h2>สายการแข่งขันรอบที่ 1 ทั้งหมดและรอบถัดไป</h2></div><Trophy size={20} /></div>{snapshot.matches.length > 0 && <p className={styles.privateNote}><LockKeyhole size={14} /> {readyMatchCount ? `พร้อมกรอกคะแนน ${readyMatchCount} คู่ · เลือกวันแข่งหรือแตะการ์ดเพื่อกรอกคะแนน` : "เลือกวันแข่งได้ทุกคู่ · คู่ที่ชนะบายจะข้ามไปรอบถัดไปเอง"}</p>}{snapshot.matches.length > 0 && <div className={styles.divisionTabs} role="tablist" aria-label="เลือกสายการแข่งขัน">{([["male", "สายชาย"], ["female", "สายหญิง"], ["mixed", "คู่ผสม"]] as Array<[Division, string]>).map(([key, label]) => <button key={key} type="button" role="tab" aria-selected={bracketDivision === key} className={bracketDivision === key ? styles.divisionActive : ""} onClick={() => setBracketDivision(key)}>{label}<small>{snapshot.matches.filter((match) => match.division === key && match.round === 1).length} คู่แรก</small></button>)}</div>}<TournamentBracket snapshot={snapshot} admin division={bracketDivision} onSelectMatch={setScoreTarget} onUpdateMatchDate={(match, value) => void saveMatchDate(match, value)} onSelectPlayer={setProfileTarget} /></section>
     </div>
     {recoveryTarget && <AdminRecoverySheet player={recoveryTarget} issued={issuedRecovery} loading={issuingRecovery} onIssue={() => void issueRecoveryCode()} onClose={closeRecoverySheet} />}
     {deleteTarget && <AdminDeleteSheet player={deleteTarget} loading={mutating} error={deleteError} onDelete={() => void confirmDeletePlayer()} onClose={() => { setDeleteTarget(null); setDeleteError(""); }} />}
