@@ -4,23 +4,25 @@ import { ChevronLeft, ChevronRight, Medal, Trophy, UserRound } from "lucide-reac
 import Image from "next/image";
 import { UIEvent, useMemo, useRef, useState } from "react";
 import { buildBracketRounds, futureSourceLabel } from "@/lib/bracket-ui";
-import type { BracketMatch, PublicPlayer, TournamentSnapshot } from "@/lib/types";
+import type { BracketMatch, Division, PublicPlayer, TournamentSnapshot } from "@/lib/types";
 import styles from "./tournament-bracket.module.css";
 
 export function TournamentBracket({
   snapshot,
   currentPlayerId,
   admin = false,
+  division,
   onSelectMatch,
   onSelectPlayer,
 }: {
   snapshot: TournamentSnapshot;
   currentPlayerId?: string;
   admin?: boolean;
+  division?: Division;
   onSelectMatch?: (match: BracketMatch) => void;
   onSelectPlayer: (player: PublicPlayer) => void;
 }) {
-  const rounds = useMemo(() => buildBracketRounds(snapshot), [snapshot]);
+  const rounds = useMemo(() => buildBracketRounds(snapshot, division), [snapshot, division]);
   const players = useMemo(() => new Map(snapshot.players.map((player) => [player.id, player])), [snapshot.players]);
   const playerPath = useMemo(() => {
     const path = new Set<string>();

@@ -136,21 +136,25 @@ test("one draw locks registration, opens private reveal, and returns only that p
     value: { localStorage: storage, dispatchEvent() {}, addEventListener() {}, removeEventListener() {} },
   });
   process.env.NEXT_PUBLIC_ENABLE_LOCAL_DEMO = "true";
-  const makePlayer = (id: string, nickname: string): Player => ({
+  const makePlayer = (id: string, nickname: string, gender: "male" | "female"): Player => ({
     id,
     nickname,
     department: "Digital",
     avatarUrl: `https://example.test/${id}.jpg`,
     registeredAt: "2026-08-20T00:00:00.000Z",
     status: "waiting",
+    gender,
   });
-  const first = makePlayer("DT-01", "หนึ่ง");
-  const second = makePlayer("DT-02", "สอง");
+  const first = makePlayer("DT-01", "หนึ่ง", "male");
+  const second = makePlayer("DT-02", "สอง", "male");
   saveLocalPlayer(second);
+  // The female division needs its own pair so the divisional draw is valid.
+  saveLocalPlayer(makePlayer("DT-03", "สาม", "female"));
+  saveLocalPlayer(makePlayer("DT-04", "สี่", "female"));
   saveLocalPlayer(first, "DT-AAAA-BBBB-CCCC-DDDD-EEEE-FFFF");
 
   const draw = await generateHiddenAssignments();
-  assert.equal(draw.pairs.length, 1);
+  assert.equal(draw.pairs.length, 2);
   assert.equal(JSON.stringify(draw).includes("avatarUrl"), false);
   const state = await getTournamentState();
   assert.equal(state.version, draw.version);
@@ -175,24 +179,28 @@ test("an odd local roster creates exactly one Round 1 BYE that can be revealed",
     value: { localStorage: storage, dispatchEvent() {}, addEventListener() {}, removeEventListener() {} },
   });
   process.env.NEXT_PUBLIC_ENABLE_LOCAL_DEMO = "true";
-  const makePlayer = (id: string): Player => ({
+  const makePlayer = (id: string, gender: "male" | "female"): Player => ({
     id,
     nickname: id,
     department: "Digital",
     avatarUrl: `/demo-avatars/demo-${id.slice(-2)}.svg`,
     registeredAt: "2026-08-20T00:00:00.000Z",
     status: "waiting",
+    gender,
   });
-  saveLocalPlayer(makePlayer("DT-01"));
-  saveLocalPlayer(makePlayer("DT-02"));
-  saveLocalPlayer(makePlayer("DT-03"), "DT-AAAA-BBBB-CCCC-DDDD-EEEE-FFFF");
+  // Three men (one Round 1 BYE) and two women (one clean pair).
+  saveLocalPlayer(makePlayer("DT-01", "male"));
+  saveLocalPlayer(makePlayer("DT-02", "male"));
+  saveLocalPlayer(makePlayer("DT-04", "female"));
+  saveLocalPlayer(makePlayer("DT-05", "female"));
+  saveLocalPlayer(makePlayer("DT-03", "male"), "DT-AAAA-BBBB-CCCC-DDDD-EEEE-FFFF");
 
   const draw = await generateHiddenAssignments();
   const byes = draw.pairs.filter((pair) => pair.player2Id === null);
-  assert.equal(draw.pairs.length, 2);
+  assert.equal(draw.pairs.length, 3);
   assert.equal(byes.length, 1);
 
-  saveLocalPlayer(makePlayer(byes[0].player1Id), "DT-AAAA-BBBB-CCCC-DDDD-EEEE-FFFF");
+  saveLocalPlayer(makePlayer(byes[0].player1Id, "male"), "DT-AAAA-BBBB-CCCC-DDDD-EEEE-FFFF");
   const reveal = await revealMyOpponent();
   assert.equal(reveal.bye, true);
   assert.equal(reveal.opponent, null);
@@ -206,16 +214,19 @@ test("the first local draw compacts a quota-heavy legacy state before storing hi
     value: { localStorage: storage, dispatchEvent() {}, addEventListener() {}, removeEventListener() {} },
   });
   process.env.NEXT_PUBLIC_ENABLE_LOCAL_DEMO = "true";
-  const player = (id: string): Player => ({
+  const player = (id: string, gender: "male" | "female"): Player => ({
     id,
     nickname: id,
     department: "Digital",
     avatarUrl: `https://example.test/${id}.jpg`,
     registeredAt: "2026-08-20T00:00:00.000Z",
     status: "waiting",
+    gender,
   });
-  saveLocalPlayer(player("DT-01"));
-  saveLocalPlayer(player("DT-02"), "DT-AAAA-BBBB-CCCC-DDDD-EEEE-FFFF");
+  saveLocalPlayer(player("DT-01", "male"));
+  saveLocalPlayer(player("DT-03", "female"));
+  saveLocalPlayer(player("DT-04", "female"));
+  saveLocalPlayer(player("DT-02", "male"), "DT-AAAA-BBBB-CCCC-DDDD-EEEE-FFFF");
   const stateKey = "office-smash-tournament-state";
   const fixedLegacy = JSON.stringify({ version: 0, status: "registration", roster: [{ avatarUrl: "" }], pairs: [] });
   const roomBeforeLegacy = 30_000 - storage.used - stateKey.length;
@@ -223,7 +234,7 @@ test("the first local draw compacts a quota-heavy legacy state before storing hi
   assert.ok(30_000 - storage.used < 100);
 
   const draw = await generateHiddenAssignments();
-  assert.equal(draw.pairs.length, 1);
+  assert.equal(draw.pairs.length, 2);
   assert.equal((storage.getItem(stateKey) ?? "").includes("data:image"), false);
   assert.equal((storage.getItem("office-smash-hidden-draw") ?? "").includes("avatar"), false);
   delete process.env.NEXT_PUBLIC_ENABLE_LOCAL_DEMO;
@@ -236,12 +247,14 @@ test("local draw reports a friendly error when compact ID state still cannot fit
     value: { localStorage: storage, dispatchEvent() {}, addEventListener() {}, removeEventListener() {} },
   });
   process.env.NEXT_PUBLIC_ENABLE_LOCAL_DEMO = "true";
-  const makePlayer = (id: string): Player => ({
+  const makePlayer = (id: string, gender: "male" | "female"): Player => ({
     id, nickname: id, department: "D", avatarUrl: `https://example.test/${id}.jpg`,
-    registeredAt: "2026-08-20T00:00:00.000Z", status: "waiting",
+    registeredAt: "2026-08-20T00:00:00.000Z", status: "waiting", gender,
   });
-  saveLocalPlayer(makePlayer("DT-01"));
-  saveLocalPlayer(makePlayer("DT-02"), "DT-AAAA-BBBB-CCCC-DDDD-EEEE-FFFF");
+  saveLocalPlayer(makePlayer("DT-01", "male"));
+  saveLocalPlayer(makePlayer("DT-03", "female"));
+  saveLocalPlayer(makePlayer("DT-04", "female"));
+  saveLocalPlayer(makePlayer("DT-02", "male"), "DT-AAAA-BBBB-CCCC-DDDD-EEEE-FFFF");
   storage.setQuota(storage.used + 250);
 
   await assert.rejects(() => generateHiddenAssignments(), /พื้นที่จัดเก็บไม่พอสำหรับบันทึกผลจับคู่/);
@@ -518,6 +531,24 @@ test("player public IDs are allocated around numbers the roster already uses", (
   assert.doesNotMatch(sql, /drop\s+(table|column|sequence)/i);
 });
 
+test("gender divisions migration splits the draw and blocks an unassigned roster", () => {
+  const sql = readFileSync(new URL("../supabase/migrations/010_gender_divisions.sql", import.meta.url), "utf8");
+  assert.match(sql, /add column if not exists gender text check \(gender in \('male', 'female'\)\)/i);
+  assert.match(sql, /add column if not exists division text not null default 'male' check \(division in \('male', 'female'\)\)/i);
+  assert.match(sql, /create unique index if not exists bracket_matches_division_slot_unique[\s\S]*\(draw_version, division, round_number, match_position\)/i);
+  assert.match(sql, /create or replace function public\.admin_set_player_gender\(p_public_id text, p_gender text\)/i);
+  assert.match(sql, /admin_set_player_gender[\s\S]*is_tournament_admin/i);
+  // Draw must refuse to run while any player is ungendered, and needs two per division.
+  assert.match(sql, /where p\.gender is null[\s\S]*every player must be assigned a gender/i);
+  assert.match(sql, /foreach division in array divisions loop/i);
+  assert.match(sql, /needs at least 2 players/i);
+  // Snapshot carries division and gender; permissions stay locked down.
+  assert.match(sql, /'division', bm\.division/i);
+  assert.match(sql, /'gender', p\.gender/i);
+  assert.match(sql, /revoke all on function public\.admin_set_player_gender\(text, text\) from public, anon/i);
+  assert.match(sql, /grant execute on function public\.admin_set_player_gender\(text, text\) to authenticated/i);
+});
+
 test("a freed top player ID is handed out again instead of skipped", () => {
   const sql = readFileSync(new URL("../supabase/migrations/009_public_id_follows_roster.sql", import.meta.url), "utf8");
   assert.match(sql, /create or replace function public\.allocate_player_public_id/i);
@@ -541,7 +572,7 @@ test("local full bracket persistence is compact and player snapshots are recover
   const issued = await adminIssuePlayerRecoveryCode(players[0].id);
   await restorePlayerWithRecoveryCode(issued.recoveryCode);
   const generated = await generateTournamentBracket();
-  assert.equal(generated.matches.length, 15);
+  assert.equal(generated.matches.length, 14); // two divisions of five: 7 + 7
   assert.doesNotMatch(storage.getItem("office-smash-hidden-draw") ?? "", /avatar|data:image/i);
   assert.deepEqual(await getAdminTournamentSnapshot(), generated);
   const playerView = await getPlayerTournamentSnapshot();

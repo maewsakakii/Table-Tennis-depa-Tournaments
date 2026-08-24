@@ -15,6 +15,7 @@ import {
   adminDeletePlayer,
   adminFillDemoPlayers,
   adminUpdatePlayerProfile,
+  adminSetPlayerGender,
   type AdminSessionState,
   generateTournamentBracket,
   getAdminSession,
@@ -27,7 +28,7 @@ import {
   subscribeToTournamentState,
   updateTournamentControls,
 } from "@/lib/tournament-store";
-import type { BracketMatch, Player, PublicPlayer, TournamentSnapshot, TournamentState } from "@/lib/types";
+import type { BracketMatch, Division, Player, PublicPlayer, TournamentSnapshot, TournamentState } from "@/lib/types";
 import styles from "./admin-experience.module.css";
 
 export function AdminExperience() {
@@ -83,6 +84,7 @@ function AdminDashboard({ demo, onSignOut }: { demo: boolean; onSignOut: () => v
   const [editing, setEditing] = useState(false);
   const [scoreTarget, setScoreTarget] = useState<BracketMatch | null>(null);
   const [profileTarget, setProfileTarget] = useState<PublicPlayer | null>(null);
+  const [bracketDivision, setBracketDivision] = useState<Division>("male");
 
   const loadData = useCallback(async () => {
     setLoading(true); setError("");
@@ -127,7 +129,15 @@ function AdminDashboard({ demo, onSignOut }: { demo: boolean; onSignOut: () => v
   function closeRecoverySheet() { setRecoveryTarget(null); setIssuedRecovery(null); }
 
   const demoCount = players.filter((player) => player.isDemo).length;
-  const readyMatchCount = snapshot.matches.filter((match) => match.status === "ready").length;
+  const readyMatchCount = snapshot.matches.filter((match) => match.division === bracketDivision && match.status === "ready").length;
+  const ungenderedCount = players.filter((player) => player.gender !== "male" && player.gender !== "female").length;
+  const maleCount = players.filter((player) => player.gender === "male").length;
+  const femaleCount = players.filter((player) => player.gender === "female").length;
+  const drawBlocker = ungenderedCount > 0
+    ? `ยังมีผู้เล่นที่ยังไม่ได้ระบุเพศ ${ungenderedCount} คน`
+    : maleCount < 2 ? "สายชายต้องมีผู้เล่นอย่างน้อย 2 คน"
+    : femaleCount < 2 ? "สายหญิงต้องมีผู้เล่นอย่างน้อย 2 คน"
+    : "";
 
   async function confirmDeletePlayer() {
     if (!deleteTarget) return;
@@ -159,6 +169,11 @@ function AdminDashboard({ demo, onSignOut }: { demo: boolean; onSignOut: () => v
     }
   }
 
+  function setPlayerGender(player: Player, gender: Division) {
+    if (player.gender === gender) return;
+    void mutate(() => adminSetPlayerGender(player.id, gender));
+  }
+
   async function saveScore(score1: number, score2: number) {
     if (!scoreTarget) return;
     const updated = await recordMatchScore(scoreTarget.id, score1, score2, scoreTarget.revision);
@@ -177,12 +192,12 @@ function AdminDashboard({ demo, onSignOut }: { demo: boolean; onSignOut: () => v
       <section className={styles.controlPanel}><div className={styles.sectionHead}><div><span>EVENT CONTROLS</span><h2>ตั้งค่าสถานะการแข่งขัน</h2></div><Radio size={20} /></div>
         <ControlToggle title="เปิดรับลงทะเบียน" description={tournament.status === "locked" ? "หากเปิดเพิ่ม ต้องสุ่มและล็อกคู่ใหม่เพื่อรวมผู้เล่นล่าสุด" : "ปิดก่อนสุ่มเพื่อไม่ให้รายชื่อเปลี่ยนระหว่างจัดคู่"} checked={tournament.registrationOpen} disabled={mutating} onChange={(checked) => void mutate(() => updateTournamentControls({ registrationOpen: checked, ...(checked ? { revealOpen: false } : {}) }))} />
         <div className={styles.drawVisual}><Shuffle size={31} /><div><b>{snapshot.matches.length ? `สายเต็ม ${snapshot.roundCount} รอบพร้อมแล้ว` : "ยังไม่ได้สุ่มคู่แข่งขัน"}</b><span>{snapshot.matches.length ? "ผู้เล่นกดสุ่มดูคู่ของตัวเองได้ทันที · แอดมินแตะคู่เพื่อกรอกคะแนน" : "เมื่อกดสุ่ม ระบบจะปิดรับสมัครและเปิดให้ผู้เล่นดูคู่ทันที"}</span></div></div>
-        <button className={styles.drawButton} onClick={() => void mutate(generateTournamentBracket)} disabled={players.length < 2 || mutating || loading}><Shuffle size={19} />{mutating ? "กำลังสุ่มและสร้างสาย..." : snapshot.matches.length ? "สุ่มคู่แข่งขันใหม่และเปิดให้ดู" : "สุ่มคู่แข่งขันและเปิดให้ดู"}</button>
-        {players.length < 2 && <p className={styles.drawHint}>ต้องมีผู้เล่นอย่างน้อย 2 คนเพื่อเริ่มจับคู่</p>}
+        <button className={styles.drawButton} onClick={() => void mutate(generateTournamentBracket)} disabled={Boolean(drawBlocker) || mutating || loading}><Shuffle size={19} />{mutating ? "กำลังสุ่มและสร้างสาย..." : snapshot.matches.length ? "สุ่มคู่แข่งขันใหม่และเปิดให้ดู" : "สุ่มคู่แข่งขันและเปิดให้ดู"}</button>
+        {drawBlocker && <p className={styles.drawHint}>{drawBlocker} จึงจะจับสายแยกชาย/หญิงได้</p>}
       </section>
 
-      {tournament.status === "locked" && <section className={styles.bracketPanel}><div className={styles.sectionHead}><div><span>LIVE BRACKET · REV {snapshot.bracketRevision}</span><h2>สายการแข่งขันรอบที่ 1 ทั้งหมดและรอบถัดไป</h2></div><Trophy size={20} /></div>{snapshot.matches.length > 0 && <p className={styles.privateNote}><LockKeyhole size={14} /> {readyMatchCount ? `พร้อมกรอกคะแนน ${readyMatchCount} คู่ · แตะการ์ดคู่นั้นเพื่อเปิดช่องกรอก` : "ยังไม่มีคู่ที่พร้อมกรอกคะแนน · คู่ที่ชนะบายจะข้ามไปรอบถัดไปเอง"}</p>}<TournamentBracket snapshot={snapshot} admin onSelectMatch={setScoreTarget} onSelectPlayer={setProfileTarget} /></section>}
-      <section className={styles.rosterPanel}><div className={styles.rosterHead}><div><span>PLAYER ROSTER</span><h2>ผู้สมัครทั้งหมด <i>{players.length}</i></h2></div><button onClick={loadData} disabled={loading} aria-label="โหลดรายชื่อใหม่"><RefreshCw size={17} className={loading ? styles.spinning : ""} /></button></div><button className={styles.demoAdd} onClick={() => void mutate(adminFillDemoPlayers)} disabled={mutating || demoCount >= 10}><UserPlus size={17} />{demoCount >= 10 ? "ผู้เล่น Demo ครบ 10 คนแล้ว" : `เติมผู้เล่น Demo ให้ครบ 10 คน (${demoCount}/10)`}</button>{players.length ? <div className={styles.playerList}>{players.map((player, index) => <PlayerRow player={player} index={index} key={player.id} onEdit={() => { setEditTarget(player); setEditError(""); }} onIssueRecovery={() => { setRecoveryTarget(player); setIssuedRecovery(null); }} onDelete={() => { setDeleteTarget(player); setDeleteError(""); }} />)}</div> : <div className={styles.emptyRoster}><Users size={30} /><b>ยังไม่มีผู้สมัคร</b><span>รายชื่อจะปรากฏหลังมีผู้เล่นลงทะเบียน</span></div>}</section>
+      {tournament.status === "locked" && <section className={styles.bracketPanel}><div className={styles.sectionHead}><div><span>LIVE BRACKET · REV {snapshot.bracketRevision}</span><h2>สายการแข่งขันรอบที่ 1 ทั้งหมดและรอบถัดไป</h2></div><Trophy size={20} /></div>{snapshot.matches.length > 0 && <p className={styles.privateNote}><LockKeyhole size={14} /> {readyMatchCount ? `พร้อมกรอกคะแนน ${readyMatchCount} คู่ · แตะการ์ดคู่นั้นเพื่อเปิดช่องกรอก` : "ยังไม่มีคู่ที่พร้อมกรอกคะแนน · คู่ที่ชนะบายจะข้ามไปรอบถัดไปเอง"}</p>}<div className={styles.divisionTabs} role="tablist" aria-label="เลือกสายชายหรือหญิง"><button type="button" role="tab" aria-selected={bracketDivision === "male"} className={bracketDivision === "male" ? styles.divisionActive : ""} onClick={() => setBracketDivision("male")}>สายชาย<small>{snapshot.matches.filter((match) => match.division === "male" && match.round === 1).length} คู่แรก</small></button><button type="button" role="tab" aria-selected={bracketDivision === "female"} className={bracketDivision === "female" ? styles.divisionActive : ""} onClick={() => setBracketDivision("female")}>สายหญิง<small>{snapshot.matches.filter((match) => match.division === "female" && match.round === 1).length} คู่แรก</small></button></div><TournamentBracket snapshot={snapshot} admin division={bracketDivision} onSelectMatch={setScoreTarget} onSelectPlayer={setProfileTarget} /></section>}
+      <section className={styles.rosterPanel}><div className={styles.rosterHead}><div><span>PLAYER ROSTER</span><h2>ผู้สมัครทั้งหมด <i>{players.length}</i></h2></div><button onClick={loadData} disabled={loading} aria-label="โหลดรายชื่อใหม่"><RefreshCw size={17} className={loading ? styles.spinning : ""} /></button></div><button className={styles.demoAdd} onClick={() => void mutate(adminFillDemoPlayers)} disabled={mutating || demoCount >= 10}><UserPlus size={17} />{demoCount >= 10 ? "ผู้เล่น Demo ครบ 10 คนแล้ว" : `เติมผู้เล่น Demo ให้ครบ 10 คน (${demoCount}/10)`}</button>{players.length ? <div className={styles.playerList}>{players.map((player, index) => <PlayerRow player={player} index={index} key={player.id} disabled={mutating} onSetGender={(gender) => setPlayerGender(player, gender)} onEdit={() => { setEditTarget(player); setEditError(""); }} onIssueRecovery={() => { setRecoveryTarget(player); setIssuedRecovery(null); }} onDelete={() => { setDeleteTarget(player); setDeleteError(""); }} />)}</div> : <div className={styles.emptyRoster}><Users size={30} /><b>ยังไม่มีผู้สมัคร</b><span>รายชื่อจะปรากฏหลังมีผู้เล่นลงทะเบียน</span></div>}</section>
     </div>
     {recoveryTarget && <AdminRecoverySheet player={recoveryTarget} issued={issuedRecovery} loading={issuingRecovery} onIssue={() => void issueRecoveryCode()} onClose={closeRecoverySheet} />}
     {deleteTarget && <AdminDeleteSheet player={deleteTarget} loading={mutating} error={deleteError} onDelete={() => void confirmDeletePlayer()} onClose={() => { setDeleteTarget(null); setDeleteError(""); }} />}
@@ -196,7 +211,7 @@ function ControlToggle({ title, description, checked, disabled, onChange }: { ti
   return <label className={`${styles.controlToggle} ${disabled ? styles.controlToggleDisabled : ""}`}><div><b>{title}</b><span>{description}</span></div><input className={styles.toggleInput} type="checkbox" checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} /><span className={`${styles.switch} ${checked ? styles.switchOn : ""}`} aria-hidden="true"><i /></span></label>;
 }
 
-function PlayerRow({ player, index, onEdit, onIssueRecovery, onDelete }: { player: Player; index: number; onEdit: () => void; onIssueRecovery: () => void; onDelete: () => void }) { return <article className={styles.playerRow}><small>{String(index + 1).padStart(2, "0")}</small><div className={styles.rowAvatar}><Image src={player.avatarUrl} alt="" fill unoptimized /></div><div className={styles.playerName}><div><b>{player.nickname}</b>{player.isDemo && <i>DEMO</i>}</div><span>{player.id} · {player.department}</span></div><div className={styles.rowActions}><button className={styles.editAction} type="button" onClick={onEdit} aria-label={`แก้ไขข้อมูล ${player.nickname}`}><Pencil size={16} /><span>แก้ไข</span></button><button className={styles.recoveryAction} type="button" onClick={onIssueRecovery} aria-label={`ออกรหัสกู้คืนใหม่ให้ ${player.nickname}`}><KeyRound size={16} /><span>รหัส</span></button><button className={styles.deleteAction} type="button" onClick={onDelete} aria-label={`ลบ ${player.nickname}`}><Trash2 size={17} /></button></div></article>; }
+function PlayerRow({ player, index, disabled, onSetGender, onEdit, onIssueRecovery, onDelete }: { player: Player; index: number; disabled: boolean; onSetGender: (gender: Division) => void; onEdit: () => void; onIssueRecovery: () => void; onDelete: () => void }) { return <article className={`${styles.playerRow} ${player.gender ? "" : styles.playerRowUnset}`}><small>{String(index + 1).padStart(2, "0")}</small><div className={styles.rowAvatar}><Image src={player.avatarUrl} alt="" fill unoptimized /></div><div className={styles.playerName}><div><b>{player.nickname}</b>{player.isDemo && <i>DEMO</i>}</div><span>{player.id} · {player.department}</span></div><div className={styles.genderPick} role="group" aria-label={`เพศของ ${player.nickname}`}><button type="button" className={player.gender === "male" ? styles.genderOn : ""} disabled={disabled} onClick={() => onSetGender("male")} aria-pressed={player.gender === "male"}>ชาย</button><button type="button" className={player.gender === "female" ? styles.genderOnF : ""} disabled={disabled} onClick={() => onSetGender("female")} aria-pressed={player.gender === "female"}>หญิง</button></div><div className={styles.rowActions}><button className={styles.editAction} type="button" onClick={onEdit} aria-label={`แก้ไขข้อมูล ${player.nickname}`}><Pencil size={16} /><span>แก้ไข</span></button><button className={styles.recoveryAction} type="button" onClick={onIssueRecovery} aria-label={`ออกรหัสกู้คืนใหม่ให้ ${player.nickname}`}><KeyRound size={16} /><span>รหัส</span></button><button className={styles.deleteAction} type="button" onClick={onDelete} aria-label={`ลบ ${player.nickname}`}><Trash2 size={17} /></button></div></article>; }
 
 function AdminEditPlayerSheet({ player, loading, error, onSave, onClose }: { player: Player; loading: boolean; error: string; onSave: (input: { nickname: string; department: string }) => void; onClose: () => void }) {
   const [nickname, setNickname] = useState(player.nickname);

@@ -4,6 +4,7 @@ import { generateRecoveryCode, nextPublicPlayerId, normalizeRecoveryCode } from 
 import type {
   AdminDraw,
   BracketMatch,
+  Division,
   KnockoutBracket,
   Player,
   PlayerIdentity,
@@ -16,7 +17,7 @@ import type {
 } from "./types.ts";
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "./supabase.ts";
 import { compressAvatarForLocalStorage } from "./local-avatar.ts";
-import { generateKnockoutBracket, recordBracketScore } from "./bracket.ts";
+import { generateDivisionalBrackets, recordBracketScore } from "./bracket.ts";
 
 export const PLAYER_STORAGE_KEY = "office-smash-player";
 const PLAYERS_STORAGE_KEY = "office-smash-players";
@@ -72,6 +73,7 @@ function mapPlayerRow(row: Record<string, unknown>): Player {
     avatarUrl: String(row.avatar_url),
     registeredAt: String(row.registered_at),
     status: "waiting",
+    gender: row.gender === "male" || row.gender === "female" ? row.gender : null,
     isDemo: Boolean(row.is_demo),
     demoSlot: row.demo_slot == null ? null : Number(row.demo_slot),
   };
@@ -347,7 +349,7 @@ export async function getAllPlayers() {
   const supabase = getSupabaseBrowserClient();
   if (!supabase) { assertAvailableBackend(); return readLocalPlayers(); }
   const { data, error } = await supabase.from("players")
-    .select("public_id,nickname,department,email,avatar_url,registered_at,is_demo,demo_slot")
+    .select("public_id,nickname,department,email,avatar_url,registered_at,gender,is_demo,demo_slot")
     .order("registered_at", { ascending: true });
   if (error) throw new Error(error.message);
   return (data ?? []).map((row) => mapPlayerRow(row));
@@ -468,6 +470,7 @@ function mapBracketMatch(row: Record<string, unknown>): BracketMatch {
     winnerId: row.winnerId ? String(row.winnerId) : row.winner_public_id ? String(row.winner_public_id) : null,
     status: String(row.status) as BracketMatch["status"],
     revision: Number(row.revision ?? 0),
+    division: (row.division === "female" ? "female" : "male") as Division,
   };
 }
 
@@ -488,6 +491,22 @@ function mapSnapshotPayload(payload: unknown): TournamentSnapshot {
   };
 }
 
+/** Enforces the division rule: every player must be assigned, and each division needs a real bracket. */
+export function splitByDivision(players: Player[]): Record<Division, string[]> {
+  const ungendered = players.filter((player) => player.gender !== "male" && player.gender !== "female");
+  if (ungendered.length > 0) {
+    throw new Error(`ยังมีผู้เล่นที่ยังไม่ได้ระบุเพศ ${ungendered.length} คน กรุณาระบุให้ครบก่อนจับสาย`);
+  }
+  const byDivision: Record<Division, string[]> = { male: [], female: [] };
+  for (const player of players) byDivision[player.gender as Division].push(player.id);
+  for (const division of ["male", "female"] as Division[]) {
+    if (byDivision[division].length < 2) {
+      throw new Error(`สาย${division === "male" ? "ชาย" : "หญิง"}ต้องมีผู้เล่นอย่างน้อย 2 คน (ตอนนี้มี ${byDivision[division].length} คน)`);
+    }
+  }
+  return byDivision;
+}
+
 /** Creates the complete, compact knockout tree. UI animation must reveal this server result, never re-roll it. */
 export async function generateTournamentBracket(): Promise<TournamentSnapshot> {
   const supabase = getSupabaseBrowserClient();
@@ -499,7 +518,7 @@ export async function generateTournamentBracket(): Promise<TournamentSnapshot> {
   assertAvailableBackend();
   const players = readLocalPlayers();
   const current = await getTournamentState();
-  const bracket = generateKnockoutBracket(players.map((player) => player.id), current.version + 1, shuffleIds);
+  const bracket = generateDivisionalBrackets(splitByDivision(players), current.version + 1, shuffleIds);
   const previousDraw = window.localStorage.getItem(DRAW_STORAGE_KEY);
   try {
     await saveTournamentState({
@@ -583,6 +602,9 @@ export async function getPlayerTournamentSnapshot(): Promise<PlayerTournamentSna
     if (error) throw new Error(error.message);
     snapshot = mapSnapshotPayload(data);
   }
+  // Front-end shows only the player's own division; the other bracket never leaves the server-shaped snapshot.
+  const ownMatch = snapshot.matches.find((match) => match.player1Id === identity.playerId || match.player2Id === identity.playerId);
+  if (ownMatch) snapshot = { ...snapshot, matches: snapshot.matches.filter((match) => match.division === ownMatch.division) };
   const latest = snapshot.matches
     .filter((match) => match.player1Id === identity.playerId || match.player2Id === identity.playerId)
     .sort((left, right) => right.round - left.round)[0] ?? null;
@@ -648,16 +670,16 @@ export async function updateTournamentControls(changes: Partial<Pick<TournamentS
 }
 
 const DEMO_PLAYER_PROFILES = [
-  ["พี่แอม", "การตลาด"],
-  ["นัท", "ไอที / ผลิตภัณฑ์"],
-  ["ปิง", "ฝ่ายขาย"],
-  ["เจ", "ปฏิบัติการ"],
-  ["มุก", "การตลาด"],
-  ["ต้น", "ไอที / ผลิตภัณฑ์"],
-  ["แพรว", "ฝ่ายขาย"],
-  ["บอส", "ปฏิบัติการ"],
-  ["ฟ้า", "กลยุทธ์องค์กร"],
-  ["นนท์", "ทรัพยากรบุคคล"],
+  ["พี่แอม", "การตลาด", "female"],
+  ["นัท", "ไอที / ผลิตภัณฑ์", "male"],
+  ["ปิง", "ฝ่ายขาย", "male"],
+  ["เจ", "ปฏิบัติการ", "male"],
+  ["มุก", "การตลาด", "female"],
+  ["ต้น", "ไอที / ผลิตภัณฑ์", "male"],
+  ["แพรว", "ฝ่ายขาย", "female"],
+  ["บอส", "ปฏิบัติการ", "male"],
+  ["ฟ้า", "กลยุทธ์องค์กร", "female"],
+  ["นนท์", "ทรัพยากรบุคคล", "female"],
 ] as const;
 
 function writeLocalPlayers(players: Player[]) {
@@ -712,7 +734,7 @@ export async function adminFillDemoPlayers(): Promise<Player[]> {
   for (let index = 0; index < DEMO_PLAYER_PROFILES.length; index += 1) {
     const slot = index + 1;
     if (occupiedSlots.has(slot)) continue;
-    const [nickname, department] = DEMO_PLAYER_PROFILES[index];
+    const [nickname, department, gender] = DEMO_PLAYER_PROFILES[index];
     const id = nextPublicPlayerId(players.map((player) => player.id));
     players.push({
       id,
@@ -721,6 +743,7 @@ export async function adminFillDemoPlayers(): Promise<Player[]> {
       avatarUrl: `/demo-avatars/demo-${String(slot).padStart(2, "0")}.svg`,
       registeredAt: new Date(createdAt + slot).toISOString(),
       status: "waiting",
+      gender,
       isDemo: true,
       demoSlot: slot,
     });
@@ -849,6 +872,27 @@ export async function adminUpdatePlayerProfile(playerId: string, input: AdminPla
     throw cause;
   }
   return updated;
+}
+
+/** Admin-only division assignment. Changing a gender invalidates any current draw, like other roster edits. */
+export async function adminSetPlayerGender(playerId: string, gender: Division): Promise<Player> {
+  if (gender !== "male" && gender !== "female") throw new Error("เพศไม่ถูกต้อง");
+  const supabase = getSupabaseBrowserClient();
+  if (supabase) {
+    const { data, error } = await supabase.rpc("admin_set_player_gender", { p_public_id: playerId, p_gender: gender });
+    if (error) throw new Error(error.message);
+    const row = (Array.isArray(data) ? data[0] : data) as Record<string, unknown> | null;
+    if (!row?.public_id) throw new Error("ระบบไม่ได้ยืนยันผลการระบุเพศ");
+    return mapPlayerRow(row);
+  }
+  assertAvailableBackend();
+  const players = readLocalPlayers();
+  const index = players.findIndex((player) => player.id === playerId);
+  if (index < 0) throw new Error("ไม่พบผู้เล่นที่เลือก");
+  const nextPlayers = [...players];
+  nextPlayers[index] = { ...players[index], gender };
+  await persistLocalRosterChange(nextPlayers);
+  return nextPlayers[index];
 }
 
 function readLocalRecoveryMap() {

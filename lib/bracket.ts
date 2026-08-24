@@ -1,4 +1,4 @@
-import type { BracketMatch, KnockoutBracket, MatchHistoryEntry } from "./types.ts";
+import type { BracketMatch, Division, KnockoutBracket, MatchHistoryEntry } from "./types.ts";
 
 export type ShufflePlayers = (playerIds: string[]) => string[];
 
@@ -6,8 +6,8 @@ function bracketSizeFor(count: number) {
   return 2 ** Math.ceil(Math.log2(count));
 }
 
-function matchId(version: number, round: number, position: number) {
-  return `v${version}-r${round}-m${position}`;
+function matchId(division: Division, version: number, round: number, position: number) {
+  return `v${version}-${division}-r${round}-m${position}`;
 }
 
 function byeMatchIndexes(matchCount: number, byeCount: number) {
@@ -24,6 +24,7 @@ export function generateKnockoutBracket(
   inputPlayerIds: string[],
   version: number,
   shuffle: ShufflePlayers,
+  division: Division = "male",
 ): KnockoutBracket {
   if (inputPlayerIds.length < 2 || inputPlayerIds.length > 64) {
     throw new Error("จำนวนผู้เล่นต้องอยู่ระหว่าง 2–64 คน");
@@ -57,12 +58,12 @@ export function generateKnockoutBracket(
     for (let position = 0; position < count; position += 1) {
       const nextRound = round + 1;
       matches.push({
-        id: matchId(version, round, position), version, round, position,
+        id: matchId(division, version, round, position), version, round, position, division,
         player1Id: round === 1 ? slots[position * 2] : null,
         player2Id: round === 1 ? slots[position * 2 + 1] : null,
-        source1MatchId: round === 1 ? null : matchId(version, round - 1, position * 2),
-        source2MatchId: round === 1 ? null : matchId(version, round - 1, position * 2 + 1),
-        nextMatchId: round < roundCount ? matchId(version, nextRound, Math.floor(position / 2)) : null,
+        source1MatchId: round === 1 ? null : matchId(division, version, round - 1, position * 2),
+        source2MatchId: round === 1 ? null : matchId(division, version, round - 1, position * 2 + 1),
+        nextMatchId: round < roundCount ? matchId(division, version, nextRound, Math.floor(position / 2)) : null,
         nextSlot: round < roundCount ? (position % 2 === 0 ? 1 : 2) : null,
         score1: null, score2: null, winnerId: null,
         status: "waiting", revision: 0,
@@ -79,6 +80,22 @@ export function generateKnockoutBracket(
     }
   }
   return { version, bracketRevision: 0, roundCount, matches };
+}
+
+/** Builds one independent bracket per division and merges them into a single snapshot. */
+export function generateDivisionalBrackets(
+  idsByDivision: Record<Division, string[]>,
+  version: number,
+  shuffle: ShufflePlayers,
+): KnockoutBracket {
+  const divisions: Division[] = ["male", "female"];
+  const built = divisions.map((division) => generateKnockoutBracket(idsByDivision[division], version, shuffle, division));
+  return {
+    version,
+    bracketRevision: 0,
+    roundCount: Math.max(0, ...built.map((bracket) => bracket.roundCount)),
+    matches: built.flatMap((bracket) => bracket.matches),
+  };
 }
 
 function advanceWinner(matches: BracketMatch[], match: BracketMatch) {
