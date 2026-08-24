@@ -134,7 +134,7 @@ export function MatchmakingRoulette({
               className={`${styles.vs} ${spinning ? styles.vsSpinning : styles.vsImpact}`}
               aria-hidden="true"
               animate={reduceMotion ? { scale: [0.9, 1], rotate: 0, opacity: [0, 1] } : spinning ? { scale: [0.9, 1.14, 0.9], rotate: [-7, 7, -7] } : { scale: [0.2, 2.1, 0.92, 1], rotate: [0, -16, 5, 0] }}
-              transition={reduceMotion ? { duration: 0.3, ease: "easeOut", delay: 0.24 } : spinning ? { repeat: Infinity, duration: 0.38 } : { type: "spring", stiffness: 600, damping: 12, mass: 0.8 }}
+              transition={reduceMotion ? { duration: 0.3, ease: "easeOut", delay: 0.24 } : spinning ? { repeat: Infinity, duration: 0.38 } : { duration: 0.62, times: [0, 0.32, 0.66, 1], ease: "easeOut" }}
             >
               {reveal.bye && !spinning ? <Trophy size={30} /> : "VS"}
             </motion.div>
@@ -239,7 +239,11 @@ function PlayerSlot({ player, side, onSelectPlayer, reduceMotion }: { player: Pu
     animate: { opacity: 1, x: 0, scale: 1, rotate: 0, filter: "blur(0px)" },
     transition: reduceMotion
       ? { duration: 0.32, ease: "easeOut" as const, delay: side === "left" ? 0 : 0.12 }
-      : { type: "spring" as const, stiffness: 520, damping: 16, mass: 0.9, delay: 0.05 },
+      : {
+        default: { type: "spring" as const, stiffness: 520, damping: 16, mass: 0.9, delay: 0.05 },
+        filter: { duration: 0.3, ease: "easeOut" as const },
+        opacity: { duration: 0.18, ease: "easeOut" as const },
+      },
   };
 
   if (onSelectPlayer) {
