@@ -1,9 +1,10 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, Medal, Trophy, UserRound, Users } from "lucide-react";
+import { CalendarDays, ChevronLeft, ChevronRight, Medal, Trophy, UserRound, Users } from "lucide-react";
 import Image from "next/image";
 import { UIEvent, useMemo, useRef, useState } from "react";
 import { buildBracketRounds, futureSourceLabel } from "@/lib/bracket-ui";
+import { formatMatchDate } from "@/lib/match-date";
 import type { BracketMatch, Division, PublicPlayer, TournamentSnapshot } from "@/lib/types";
 import styles from "./tournament-bracket.module.css";
 
@@ -13,6 +14,7 @@ export function TournamentBracket({
   admin = false,
   division,
   onSelectMatch,
+  onUpdateMatchDate,
   onSelectPlayer,
 }: {
   snapshot: TournamentSnapshot;
@@ -20,6 +22,7 @@ export function TournamentBracket({
   admin?: boolean;
   division?: Division;
   onSelectMatch?: (match: BracketMatch) => void;
+  onUpdateMatchDate?: (match: BracketMatch, value: string | null) => void;
   onSelectPlayer: (player: PublicPlayer) => void;
 }) {
   const rounds = useMemo(() => buildBracketRounds(snapshot, division), [snapshot, division]);
@@ -67,16 +70,19 @@ export function TournamentBracket({
       {rounds.map((round, index) => <button key={round.round} type="button" role="tab" aria-selected={activeRound === index} className={activeRound === index ? styles.activeTab : ""} onClick={() => goToRound(index)}>{round.label}<small>{round.matches.length} คู่</small></button>)}
     </div>
     <div className={styles.roundViewport} ref={scrollRef} onScroll={trackRound}>
-      {rounds.map((round) => <section className={styles.round} key={round.round} aria-label={round.label}><header><span>ROUND {String(round.round).padStart(2, "0")}</span><h3>{round.label}</h3></header><div className={styles.matchList}>{round.matches.map((match) => <MatchCard key={match.id} match={match} snapshot={snapshot} players={players} currentPlayerId={currentPlayerId} onPath={playerPath.has(match.id)} admin={admin} onSelectMatch={onSelectMatch} onSelectPlayer={onSelectPlayer} />)}</div></section>)}
+      {rounds.map((round) => <section className={styles.round} key={round.round} aria-label={round.label}><header><span>ROUND {String(round.round).padStart(2, "0")}</span><h3>{round.label}</h3></header><div className={styles.matchList}>{round.matches.map((match) => <MatchCard key={match.id} match={match} snapshot={snapshot} players={players} currentPlayerId={currentPlayerId} onPath={playerPath.has(match.id)} admin={admin} onSelectMatch={onSelectMatch} onUpdateMatchDate={onUpdateMatchDate} onSelectPlayer={onSelectPlayer} />)}</div></section>)}
     </div>
     <div className={styles.roundNav}><button type="button" onClick={() => goToRound(activeRound - 1)} disabled={activeRound === 0}><ChevronLeft size={18} /> รอบก่อนหน้า</button><span>{activeRound + 1} / {rounds.length}</span><button type="button" onClick={() => goToRound(activeRound + 1)} disabled={activeRound === rounds.length - 1}>รอบถัดไป <ChevronRight size={18} /></button></div>
   </section>;
 }
 
-function MatchCard({ match, snapshot, players, currentPlayerId, onPath, admin, onSelectMatch, onSelectPlayer }: { match: BracketMatch; snapshot: TournamentSnapshot; players: Map<string, PublicPlayer>; currentPlayerId?: string; onPath: boolean; admin: boolean; onSelectMatch?: (match: BracketMatch) => void; onSelectPlayer: (player: PublicPlayer) => void }) {
+function MatchCard({ match, snapshot, players, currentPlayerId, onPath, admin, onSelectMatch, onUpdateMatchDate, onSelectPlayer }: { match: BracketMatch; snapshot: TournamentSnapshot; players: Map<string, PublicPlayer>; currentPlayerId?: string; onPath: boolean; admin: boolean; onSelectMatch?: (match: BracketMatch) => void; onUpdateMatchDate?: (match: BracketMatch, value: string | null) => void; onSelectPlayer: (player: PublicPlayer) => void }) {
   const actionable = admin && Boolean(onSelectMatch) && match.player1Id && match.player2Id && (match.status === "ready" || match.status === "completed");
   return <article className={`${styles.matchCard} ${onPath ? styles.playerPath : ""} ${actionable ? styles.actionable : ""}`} onClick={actionable ? () => onSelectMatch?.(match) : undefined}>
     <div className={styles.matchTop}><span>คู่ {match.position + 1}</span><Status match={match} /></div>
+    {admin && onUpdateMatchDate
+      ? <label className={styles.dateEditor} onClick={(event) => event.stopPropagation()}><CalendarDays size={14} /><span>วันแข่งขัน</span><input type="date" value={match.scheduledDate ?? ""} onChange={(event) => onUpdateMatchDate(match, event.target.value || null)} /></label>
+      : <div className={styles.matchDate}><CalendarDays size={13} /><span>แข่งขัน {formatMatchDate(match.scheduledDate)}</span></div>}
     <PlayerSlot slot={1} playerId={match.player1Id} partnerId={match.player1PartnerId} sourceId={match.source1MatchId} match={match} snapshot={snapshot} players={players} currentPlayerId={currentPlayerId} onSelectPlayer={onSelectPlayer} />
     <div className={styles.divider}><i /><b>VS</b><i /></div>
     <PlayerSlot slot={2} playerId={match.player2Id} partnerId={match.player2PartnerId} sourceId={match.source2MatchId} match={match} snapshot={snapshot} players={players} currentPlayerId={currentPlayerId} onSelectPlayer={onSelectPlayer} />
