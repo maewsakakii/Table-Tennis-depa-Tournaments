@@ -35,7 +35,10 @@ begin
   update public.tournament_state ts set version = ts.version + 1, bracket_revision = 0,
     status = case when ts.registration_open then 'registration' else 'locked' end,
     reveal_open = false, started_at = null, updated_at = pg_catalog.now() where ts.id = 1;
-  return query select p.public_id, p.nickname, p.department, p.email, p.avatar_url, p.registered_at, p.gender, p.is_demo, p.demo_slot
+  -- Cast every column to the declared return type so a drifted column type on an
+  -- older database cannot raise "structure of query does not match function result type".
+  return query select p.public_id::text, p.nickname::text, p.department::text, p.email::text,
+    p.avatar_url::text, p.registered_at::timestamptz, p.gender::text, p.is_demo::boolean, p.demo_slot::smallint
     from public.players p where p.public_id = p_public_id;
 end;
 $$;
