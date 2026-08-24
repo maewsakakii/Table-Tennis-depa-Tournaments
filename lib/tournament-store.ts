@@ -16,7 +16,7 @@ import type {
   TournamentState,
 } from "./types.ts";
 import { getSupabaseBrowserClient, isSupabaseConfigured } from "./supabase.ts";
-import { compressAvatarForLocalStorage } from "./local-avatar.ts";
+import { compressAvatarForLocalStorage, isAcceptedAvatar } from "./local-avatar.ts";
 import { generateDivisionalBrackets, recordBracketScore } from "./bracket.ts";
 
 export const PLAYER_STORAGE_KEY = "office-smash-player";
@@ -893,6 +893,56 @@ export async function adminSetPlayerGender(playerId: string, gender: Division): 
   nextPlayers[index] = { ...players[index], gender };
   await persistLocalRosterChange(nextPlayers);
   return nextPlayers[index];
+}
+
+/** Admin-only avatar replacement. Mirrors registration's upload + validation. */
+export async function adminUpdatePlayerAvatar(playerId: string, avatarFile: File): Promise<Player> {
+  if (!isAcceptedAvatar(avatarFile)) throw new Error("รองรับเฉพาะไฟล์รูปภาพเท่านั้น");
+  if (avatarFile.size > 10 * 1024 * 1024) throw new Error("รูปต้องมีขนาดไม่เกิน 10 MB");
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) {
+    assertAvailableBackend();
+    const players = readLocalPlayers();
+    const index = players.findIndex((player) => player.id === playerId);
+    if (index < 0) throw new Error("ไม่พบผู้เล่นที่เลือก");
+    const compressed = await compressAvatarForLocalStorage(avatarFile, players[index].avatarUrl);
+    const updated = { ...players[index], avatarUrl: compressed };
+    const nextPlayers = [...players];
+    nextPlayers[index] = updated;
+    const previousRoster = window.localStorage.getItem(PLAYERS_STORAGE_KEY);
+    const previousSession = window.localStorage.getItem(PLAYER_STORAGE_KEY);
+    try {
+      writeLocalPlayers(nextPlayers);
+      updateCachedCurrentPlayer(updated);
+    } catch (cause) {
+      restoreStorageValue(PLAYERS_STORAGE_KEY, previousRoster);
+      restoreStorageValue(PLAYER_STORAGE_KEY, previousSession);
+      throw cause;
+    }
+    return updated;
+  }
+  const extension = avatarFile.name.split(".").pop()?.toLowerCase() || "jpg";
+  const avatarPath = `pending/${crypto.randomUUID()}.${extension}`;
+  const contentType = avatarFile.type || (
+    extension === "heic" ? "image/heic" : extension === "heif" ? "image/heif" :
+    extension === "png" ? "image/png" : extension === "webp" ? "image/webp" : "image/jpeg"
+  );
+  const { error: uploadError } = await supabase.storage
+    .from("player-avatars").upload(avatarPath, avatarFile, { upsert: false, contentType });
+  if (uploadError) throw new Error(`อัปโหลดรูปไม่สำเร็จ: ${uploadError.message}`);
+  const { data: publicUrl } = supabase.storage.from("player-avatars").getPublicUrl(avatarPath);
+  const { data, error } = await supabase.rpc("admin_update_player_avatar", {
+    p_public_id: playerId, p_avatar_url: publicUrl.publicUrl,
+  });
+  if (error) {
+    void supabase.storage.from("player-avatars").remove([avatarPath]);
+    throw new Error(error.message);
+  }
+  const row = (Array.isArray(data) ? data[0] : data) as Record<string, unknown> | null;
+  if (!row?.public_id) throw new Error("ระบบไม่ได้ยืนยันผลการเปลี่ยนรูป");
+  const updated = mapPlayerRow(row);
+  try { updateCachedCurrentPlayer(updated); } catch { /* best effort */ }
+  return updated;
 }
 
 function readLocalRecoveryMap() {
