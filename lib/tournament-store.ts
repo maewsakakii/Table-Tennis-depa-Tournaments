@@ -453,6 +453,12 @@ function legacyDrawFromBracket(bracket: KnockoutBracket): AdminDraw {
   })) };
 }
 
+/** Every division the server can send must survive the trip: an unlisted value silently
+ *  collapsing into "male" is what put the mixed bracket inside the men's tab. */
+export function toDivision(value: unknown): Division {
+  return value === "female" || value === "mixed" ? value : "male";
+}
+
 function mapBracketMatch(row: Record<string, unknown>): BracketMatch {
   return {
     id: String(row.id ?? row.match_id),
@@ -472,7 +478,7 @@ function mapBracketMatch(row: Record<string, unknown>): BracketMatch {
     winnerId: row.winnerId ? String(row.winnerId) : row.winner_public_id ? String(row.winner_public_id) : null,
     status: String(row.status) as BracketMatch["status"],
     revision: Number(row.revision ?? 0),
-    division: (row.division === "female" ? "female" : "male") as Division,
+    division: toDivision(row.division),
   };
 }
 

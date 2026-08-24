@@ -26,6 +26,7 @@ import {
   revealMyOpponent,
   recordMatchScore,
   restorePlayerWithRecoveryCode,
+  toDivision,
   saveLocalPlayer,
   saveTournamentState,
   updateTournamentControls,
@@ -565,6 +566,16 @@ test("admins can replace a player's avatar with a validated project object", () 
 // The gender RPC must return demo_slot as smallint to match the players column type.
 // A plpgsql variable sharing a name with bracket_matches.division makes every
 // UPDATE ... FROM in the draw raise: column reference "division" is ambiguous.
+// A Supabase row's division must survive mapping. Collapsing anything that is not
+// "female" into "male" put the entire mixed bracket inside the men's tab.
+test("every server division maps through instead of collapsing into male", () => {
+  assert.equal(toDivision("male"), "male");
+  assert.equal(toDivision("female"), "female");
+  assert.equal(toDivision("mixed"), "mixed");
+  assert.equal(toDivision(undefined), "male");
+  assert.equal(toDivision("unknown-division"), "male");
+});
+
 test("mixed doubles migration pairs by seed and carries partners through scoring", () => {
   const sql = readFileSync(new URL("../supabase/migrations/012_mixed_doubles_division.sql", import.meta.url), "utf8");
   assert.match(sql, /add column if not exists player1_partner_id uuid references public\.players\(id\)/i);
