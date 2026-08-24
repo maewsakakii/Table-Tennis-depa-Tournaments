@@ -676,10 +676,10 @@ test("a failed local profile edit rolls back both roster and current-player cach
   delete process.env.NEXT_PUBLIC_ENABLE_LOCAL_DEMO;
 });
 
-test("admin roster UI keeps demo tools visible, warns before delete, and omits the removed subtitle", () => {
+test("admin roster UI drops the demo-fill button, warns before delete, and omits the removed subtitle", () => {
   const ui = readFileSync(new URL("../components/admin-experience.tsx", import.meta.url), "utf8");
   const registrationUi = readFileSync(new URL("../components/registration-experience.tsx", import.meta.url), "utf8");
-  assert.match(ui, /เติมผู้เล่น Demo ให้ครบ 10 คน/);
+  assert.doesNotMatch(ui, /เติมผู้เล่น Demo ให้ครบ 10 คน/);
   assert.match(ui, /การลบจะยกเลิกผลจับคู่เดิม/);
   assert.match(ui, /DEMO/);
   assert.doesNotMatch(ui, /ล็อกคู่ไว้หลังบ้าน แล้วเปิดให้นักแข่งสุ่มดูคู่ของตัวเองเมื่อพร้อม/);

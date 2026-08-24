@@ -1,7 +1,7 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { ArrowLeft, CircleAlert, Copy, Eye, EyeOff, Gamepad2, ImagePlus, KeyRound, LockKeyhole, LogOut, Pencil, Radio, RefreshCw, Shuffle, Sparkles, Trash2, Trophy, UserPlus, Users, Wifi, X } from "lucide-react";
+import { ArrowLeft, CircleAlert, Copy, Eye, EyeOff, Gamepad2, ImagePlus, KeyRound, LockKeyhole, LogOut, Pencil, Radio, RefreshCw, Shuffle, Sparkles, Trash2, Trophy, Users, Wifi, X } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 import { ChangeEvent, FormEvent, useCallback, useEffect, useRef, useState } from "react";
@@ -13,7 +13,6 @@ import {
   adminSignOut,
   adminIssuePlayerRecoveryCode,
   adminDeletePlayer,
-  adminFillDemoPlayers,
   adminUpdatePlayerProfile,
   adminUpdatePlayerAvatar,
   adminSetPlayerGender,
@@ -132,7 +131,6 @@ function AdminDashboard({ demo, onSignOut }: { demo: boolean; onSignOut: () => v
 
   function closeRecoverySheet() { setRecoveryTarget(null); setIssuedRecovery(null); }
 
-  const demoCount = players.filter((player) => player.isDemo).length;
   const readyMatchCount = snapshot.matches.filter((match) => match.division === bracketDivision && match.status === "ready").length;
   const ungenderedCount = players.filter((player) => player.gender !== "male" && player.gender !== "female").length;
   const maleCount = players.filter((player) => player.gender === "male").length;
@@ -212,14 +210,14 @@ function AdminDashboard({ demo, onSignOut }: { demo: boolean; onSignOut: () => v
         <button className={styles.rosterOpenBtn} type="button" onClick={() => { setRosterFilter("all"); setRosterOpen(true); }}><Users size={16} /> ดูและจัดการรายชื่อ</button>
       </section>
 
-      {tournament.status === "locked" && <section className={styles.bracketPanel}><div className={styles.sectionHead}><div><span>LIVE BRACKET · REV {snapshot.bracketRevision}</span><h2>สายการแข่งขันรอบที่ 1 ทั้งหมดและรอบถัดไป</h2></div><Trophy size={20} /></div>{snapshot.matches.length > 0 && <p className={styles.privateNote}><LockKeyhole size={14} /> {readyMatchCount ? `พร้อมกรอกคะแนน ${readyMatchCount} คู่ · แตะการ์ดคู่นั้นเพื่อเปิดช่องกรอก` : "ยังไม่มีคู่ที่พร้อมกรอกคะแนน · คู่ที่ชนะบายจะข้ามไปรอบถัดไปเอง"}</p>}<div className={styles.divisionTabs} role="tablist" aria-label="เลือกสายชายหรือหญิง"><button type="button" role="tab" aria-selected={bracketDivision === "male"} className={bracketDivision === "male" ? styles.divisionActive : ""} onClick={() => setBracketDivision("male")}>สายชาย<small>{snapshot.matches.filter((match) => match.division === "male" && match.round === 1).length} คู่แรก</small></button><button type="button" role="tab" aria-selected={bracketDivision === "female"} className={bracketDivision === "female" ? styles.divisionActive : ""} onClick={() => setBracketDivision("female")}>สายหญิง<small>{snapshot.matches.filter((match) => match.division === "female" && match.round === 1).length} คู่แรก</small></button></div><TournamentBracket snapshot={snapshot} admin division={bracketDivision} onSelectMatch={setScoreTarget} onSelectPlayer={setProfileTarget} /></section>}
+      <section className={styles.bracketPanel}><div className={styles.sectionHead}><div><span>LIVE BRACKET · REV {snapshot.bracketRevision}</span><h2>สายการแข่งขันรอบที่ 1 ทั้งหมดและรอบถัดไป</h2></div><Trophy size={20} /></div>{snapshot.matches.length > 0 && <p className={styles.privateNote}><LockKeyhole size={14} /> {readyMatchCount ? `พร้อมกรอกคะแนน ${readyMatchCount} คู่ · แตะการ์ดคู่นั้นเพื่อเปิดช่องกรอก` : "ยังไม่มีคู่ที่พร้อมกรอกคะแนน · คู่ที่ชนะบายจะข้ามไปรอบถัดไปเอง"}</p>}{snapshot.matches.length > 0 && <div className={styles.divisionTabs} role="tablist" aria-label="เลือกสายชายหรือหญิง"><button type="button" role="tab" aria-selected={bracketDivision === "male"} className={bracketDivision === "male" ? styles.divisionActive : ""} onClick={() => setBracketDivision("male")}>สายชาย<small>{snapshot.matches.filter((match) => match.division === "male" && match.round === 1).length} คู่แรก</small></button><button type="button" role="tab" aria-selected={bracketDivision === "female"} className={bracketDivision === "female" ? styles.divisionActive : ""} onClick={() => setBracketDivision("female")}>สายหญิง<small>{snapshot.matches.filter((match) => match.division === "female" && match.round === 1).length} คู่แรก</small></button></div>}<TournamentBracket snapshot={snapshot} admin division={bracketDivision} onSelectMatch={setScoreTarget} onSelectPlayer={setProfileTarget} /></section>
     </div>
     {recoveryTarget && <AdminRecoverySheet player={recoveryTarget} issued={issuedRecovery} loading={issuingRecovery} onIssue={() => void issueRecoveryCode()} onClose={closeRecoverySheet} />}
     {deleteTarget && <AdminDeleteSheet player={deleteTarget} loading={mutating} error={deleteError} onDelete={() => void confirmDeletePlayer()} onClose={() => { setDeleteTarget(null); setDeleteError(""); }} />}
     {editTarget && <AdminEditPlayerSheet key={editTarget.id} player={editTarget} loading={editing} error={editError} onSave={(input) => void savePlayerProfile(input)} onClose={() => { setEditTarget(null); setEditError(""); }} />}
     {scoreTarget && <ScoreEntrySheet key={`${scoreTarget.id}-${scoreTarget.revision}`} match={scoreTarget} players={snapshot.players} onSave={saveScore} onClose={() => setScoreTarget(null)} />}
     {profileTarget && <PlayerProfileSheet player={profileTarget} snapshot={snapshot} onClose={() => setProfileTarget(null)} />}
-    {rosterOpen && <AdminRosterSheet players={players} loading={loading} mutating={mutating} demoCount={demoCount} filter={rosterFilter} onFilter={setRosterFilter} onRefresh={() => void loadData()} onFillDemo={() => void mutate(adminFillDemoPlayers)} onSetGender={setPlayerGender} onEdit={(target) => { setEditTarget(target); setEditError(""); }} onIssueRecovery={(target) => { setRecoveryTarget(target); setIssuedRecovery(null); }} onDelete={(target) => { setDeleteTarget(target); setDeleteError(""); }} onClose={() => setRosterOpen(false)} />}
+    {rosterOpen && <AdminRosterSheet players={players} loading={loading} mutating={mutating} filter={rosterFilter} onFilter={setRosterFilter} onRefresh={() => void loadData()} onSetGender={setPlayerGender} onEdit={(target) => { setEditTarget(target); setEditError(""); }} onIssueRecovery={(target) => { setRecoveryTarget(target); setIssuedRecovery(null); }} onDelete={(target) => { setDeleteTarget(target); setDeleteError(""); }} onClose={() => setRosterOpen(false)} />}
   </main>;
 }
 
@@ -227,9 +225,9 @@ function ControlToggle({ title, description, checked, disabled, onChange }: { ti
   return <label className={`${styles.controlToggle} ${disabled ? styles.controlToggleDisabled : ""}`}><div><b>{title}</b><span>{description}</span></div><input className={styles.toggleInput} type="checkbox" checked={checked} disabled={disabled} onChange={(event) => onChange(event.target.checked)} /><span className={`${styles.switch} ${checked ? styles.switchOn : ""}`} aria-hidden="true"><i /></span></label>;
 }
 
-function AdminRosterSheet({ players, loading, mutating, demoCount, filter, onFilter, onRefresh, onFillDemo, onSetGender, onEdit, onIssueRecovery, onDelete, onClose }: {
-  players: Player[]; loading: boolean; mutating: boolean; demoCount: number; filter: "all" | Division;
-  onFilter: (value: "all" | Division) => void; onRefresh: () => void; onFillDemo: () => void;
+function AdminRosterSheet({ players, loading, mutating, filter, onFilter, onRefresh, onSetGender, onEdit, onIssueRecovery, onDelete, onClose }: {
+  players: Player[]; loading: boolean; mutating: boolean; filter: "all" | Division;
+  onFilter: (value: "all" | Division) => void; onRefresh: () => void;
   onSetGender: (player: Player, gender: Division) => void; onEdit: (player: Player) => void;
   onIssueRecovery: (player: Player) => void; onDelete: (player: Player) => void; onClose: () => void;
 }) {
@@ -256,7 +254,6 @@ function AdminRosterSheet({ players, loading, mutating, demoCount, filter, onFil
       <div className={styles.rosterFilterTabs} role="tablist" aria-label="กรองตามเพศ">
         {tabs.map((tab) => <button key={tab.key} type="button" role="tab" aria-selected={filter === tab.key} className={filter === tab.key ? styles.rosterFilterOn : ""} onClick={() => onFilter(tab.key)}>{tab.label}</button>)}
       </div>
-      <button className={styles.demoAdd} onClick={onFillDemo} disabled={mutating || demoCount >= 10}><UserPlus size={17} />{demoCount >= 10 ? "ผู้เล่น Demo ครบ 10 คนแล้ว" : `เติมผู้เล่น Demo ให้ครบ 10 คน (${demoCount}/10)`}</button>
       {shown.length ? <div className={styles.rosterSheetList}>{shown.map((player, index) => <PlayerRow player={player} index={index} key={player.id} disabled={mutating} onSetGender={(gender) => onSetGender(player, gender)} onEdit={() => onEdit(player)} onIssueRecovery={() => onIssueRecovery(player)} onDelete={() => onDelete(player)} />)}</div>
         : <div className={styles.emptyRoster}><Users size={30} /><b>{players.length ? "ไม่มีผู้เล่นในกลุ่มนี้" : "ยังไม่มีผู้สมัคร"}</b><span>{players.length ? "ลองสลับแท็บดูกลุ่มอื่น" : "รายชื่อจะปรากฏหลังมีผู้เล่นลงทะเบียน"}</span></div>}
     </section>
