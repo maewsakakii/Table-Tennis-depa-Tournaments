@@ -602,9 +602,10 @@ export async function getPlayerTournamentSnapshot(): Promise<PlayerTournamentSna
     if (error) throw new Error(error.message);
     snapshot = mapSnapshotPayload(data);
   }
-  // Front-end shows only the player's own division; the other bracket never leaves the server-shaped snapshot.
+  // Both divisions travel to the client so the bracket screen can offer a male/female switch;
+  // the player's own division is reported separately for their reveal and roulette.
   const ownMatch = snapshot.matches.find((match) => match.player1Id === identity.playerId || match.player2Id === identity.playerId);
-  if (ownMatch) snapshot = { ...snapshot, matches: snapshot.matches.filter((match) => match.division === ownMatch.division) };
+  const ownDivision = ownMatch?.division ?? null;
   const latest = snapshot.matches
     .filter((match) => match.player1Id === identity.playerId || match.player2Id === identity.playerId)
     .sort((left, right) => right.round - left.round)[0] ?? null;
@@ -619,7 +620,8 @@ export async function getPlayerTournamentSnapshot(): Promise<PlayerTournamentSna
     ? current.player1Id === identity.playerId ? current.player2Id : current.player1Id
     : null;
   return {
-    ...snapshot, playerId: identity.playerId, currentMatchId: current?.id ?? null,
+    ...snapshot, playerId: identity.playerId, division: ownDivision,
+    currentMatchId: current?.id ?? null,
     currentOpponentId: opponentId, bye: current?.status === "bye",
   };
 }

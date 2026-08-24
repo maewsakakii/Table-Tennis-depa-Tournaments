@@ -611,6 +611,40 @@ test("local full bracket persistence is compact and player snapshots are recover
   delete process.env.NEXT_PUBLIC_ENABLE_LOCAL_DEMO;
 });
 
+test("the player snapshot carries both divisions and names the player's own", async () => {
+  const storage = new MemoryStorage();
+  Object.defineProperty(globalThis, "window", {
+    configurable: true,
+    value: { localStorage: storage, dispatchEvent() {}, addEventListener() {}, removeEventListener() {} },
+  });
+  process.env.NEXT_PUBLIC_ENABLE_LOCAL_DEMO = "true";
+  const players = await adminFillDemoPlayers();
+  const issued = await adminIssuePlayerRecoveryCode(players[0].id);
+  await restorePlayerWithRecoveryCode(issued.recoveryCode);
+  await generateTournamentBracket();
+
+  const view = await getPlayerTournamentSnapshot();
+  const own = view.matches.find((match) => match.player1Id === view.playerId || match.player2Id === view.playerId);
+  assert.ok(own, "the player must appear in the bracket");
+  // Both brackets travel to the client so the bracket screen can offer a male/female switch.
+  assert.equal(view.division, own.division);
+  assert.ok(view.matches.some((match) => match.division === "male"));
+  assert.ok(view.matches.some((match) => match.division === "female"));
+  // The roulette roster is scoped by division: nobody from the other bracket may appear.
+  const ownDivisionIds = new Set(view.matches
+    .filter((match) => match.division === view.division)
+    .flatMap((match) => [match.player1Id, match.player2Id])
+    .filter((id): id is string => Boolean(id)));
+  const otherDivisionIds = view.matches
+    .filter((match) => match.division !== view.division)
+    .flatMap((match) => [match.player1Id, match.player2Id])
+    .filter((id): id is string => Boolean(id));
+  assert.ok(ownDivisionIds.size >= 2);
+  assert.ok(otherDivisionIds.length > 0);
+  for (const id of otherDivisionIds) assert.equal(ownDivisionIds.has(id), false);
+  delete process.env.NEXT_PUBLIC_ENABLE_LOCAL_DEMO;
+});
+
 test("local score recording advances the winner and enforces expected revision", async () => {
   const storage = new MemoryStorage();
   Object.defineProperty(globalThis, "window", {

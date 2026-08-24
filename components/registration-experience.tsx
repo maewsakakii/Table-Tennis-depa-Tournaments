@@ -19,7 +19,7 @@ import {
   Zap,
 } from "lucide-react";
 import Image from "next/image";
-import { ChangeEvent, FormEvent, useEffect, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { MatchmakingRoulette } from "@/components/matchmaking-roulette";
 import { PlayerProfileSheet } from "@/components/player-profile-sheet";
 import { TournamentBracket } from "@/components/tournament-bracket";
@@ -37,7 +37,7 @@ import {
   subscribeToTournamentState,
   toPublicPlayer,
 } from "@/lib/tournament-store";
-import type { Player, PlayerReveal, PlayerTournamentSnapshot, PublicPlayer, TournamentState } from "@/lib/types";
+import type { Division, Player, PlayerReveal, PlayerTournamentSnapshot, PublicPlayer, TournamentState } from "@/lib/types";
 
 type FormState = Pick<Player, "nickname" | "department">;
 type Errors = Partial<Record<keyof FormState | "avatar", string>>;
@@ -64,6 +64,21 @@ export function RegistrationExperience() {
   const [lobbyError, setLobbyError] = useState("");
   const [backendError, setBackendError] = useState("");
   const [playerSnapshot, setPlayerSnapshot] = useState<PlayerTournamentSnapshot | null>(null);
+
+  // The reel must only cycle faces from the player's own division: the snapshot now carries
+  // both brackets, so scope the roster to whoever appears in that division's matches.
+  const rouletteCandidates = useMemo(() => {
+    const fallback = player ? [toPublicPlayer(player), ...(reveal?.opponent ? [reveal.opponent] : [])] : [];
+    if (!playerSnapshot?.division) return playerSnapshot?.players ?? fallback;
+    const inDivision = new Set<string>();
+    for (const match of playerSnapshot.matches) {
+      if (match.division !== playerSnapshot.division) continue;
+      if (match.player1Id) inDivision.add(match.player1Id);
+      if (match.player2Id) inDivision.add(match.player2Id);
+    }
+    const scoped = playerSnapshot.players.filter((candidate) => inDivision.has(candidate.id));
+    return scoped.length ? scoped : fallback;
+  }, [player, playerSnapshot, reveal]);
   const [bracketOpen, setBracketOpen] = useState(false);
   const [profileTarget, setProfileTarget] = useState<PublicPlayer | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -337,7 +352,7 @@ export function RegistrationExperience() {
       </AnimatePresence>
       <AnimatePresence>
         {restoreOpen && <RecoverySheet value={restoreCode} onChange={setRestoreCode} onClose={() => { setRestoreOpen(false); setSubmitError(""); }} onSubmit={restoreIdentity} loading={restoring} error={submitError} />}
-        {reveal && player && <MatchmakingRoulette player={toPublicPlayer(player)} reveal={reveal} candidates={playerSnapshot?.players ?? [toPublicPlayer(player), ...(reveal.opponent ? [reveal.opponent] : [])]} onSelectPlayer={(target) => { setReveal(null); setProfileTarget(target); }} onFinish={() => setReveal(null)} />}
+        {reveal && player && <MatchmakingRoulette player={toPublicPlayer(player)} reveal={reveal} candidates={rouletteCandidates} onSelectPlayer={(target) => { setReveal(null); setProfileTarget(target); }} onFinish={() => setReveal(null)} />}
         {bracketOpen && playerSnapshot && <PlayerBracketView snapshot={playerSnapshot} onClose={() => setBracketOpen(false)} onSelectPlayer={setProfileTarget} />}
         {profileTarget && playerSnapshot && <PlayerProfileSheet player={profileTarget} snapshot={playerSnapshot} onClose={() => setProfileTarget(null)} />}
       </AnimatePresence>
@@ -500,12 +515,18 @@ function playerPassStatus(snapshot: PlayerTournamentSnapshot | null, playerId: s
 
 function PlayerBracketView({ snapshot, onClose, onSelectPlayer }: { snapshot: PlayerTournamentSnapshot; onClose: () => void; onSelectPlayer: (player: PublicPlayer) => void }) {
   const reduceMotion = useReducedMotion();
+  // Open on the player's own division, but let them switch to the other one.
+  const [division, setDivision] = useState<Division>(snapshot.division ?? "male");
   useEffect(() => {
     const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose(); };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [onClose]);
-  return <motion.section className="player-bracket-screen" role="dialog" aria-modal="true" aria-labelledby="player-bracket-title" initial={reduceMotion ? false : { opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={reduceMotion ? { opacity: 0 } : { opacity: 0, x: 24 }}><header><button type="button" onClick={onClose}><ArrowLeft size={19} /> Lobby</button><div><span>LIVE KNOCKOUT</span><h2 id="player-bracket-title">สายการแข่งขัน</h2></div><b>REV {snapshot.bracketRevision}</b></header><main><div className="player-path-note"><Sparkles size={17} /><div><b>เส้นทางของคุณไฮไลต์สีเขียว</b><span>ปัดซ้าย–ขวา หรือใช้ปุ่มเพื่อดูแต่ละรอบ</span></div></div><TournamentBracket snapshot={snapshot} currentPlayerId={snapshot.playerId} onSelectPlayer={onSelectPlayer} /></main></motion.section>;
+  const tabs: Array<{ key: Division; label: string }> = [
+    { key: "male", label: "สายชาย" },
+    { key: "female", label: "สายหญิง" },
+  ];
+  return <motion.section className="player-bracket-screen" role="dialog" aria-modal="true" aria-labelledby="player-bracket-title" initial={reduceMotion ? false : { opacity: 0, x: 24 }} animate={{ opacity: 1, x: 0 }} exit={reduceMotion ? { opacity: 0 } : { opacity: 0, x: 24 }}><header><button type="button" onClick={onClose}><ArrowLeft size={19} /> Lobby</button><div><span>LIVE KNOCKOUT</span><h2 id="player-bracket-title">สายการแข่งขัน</h2></div><b>REV {snapshot.bracketRevision}</b></header><main><div className="player-division-tabs" role="tablist" aria-label="เลือกสายชายหรือหญิง">{tabs.map((tab) => <button key={tab.key} type="button" role="tab" aria-selected={division === tab.key} className={division === tab.key ? "division-tab-on" : ""} onClick={() => setDivision(tab.key)}>{tab.label}<small>{snapshot.matches.filter((match) => match.division === tab.key && match.round === 1).length} คู่แรก</small>{snapshot.division === tab.key && <i>สายของคุณ</i>}</button>)}</div><div className="player-path-note"><Sparkles size={17} /><div><b>เส้นทางของคุณไฮไลต์สีเขียว</b><span>ปัดซ้าย–ขวา หรือใช้ปุ่มเพื่อดูแต่ละรอบ</span></div></div><TournamentBracket snapshot={snapshot} division={division} currentPlayerId={snapshot.playerId} onSelectPlayer={onSelectPlayer} /></main></motion.section>;
 }
 
 function RegistrationClosed({ onRestore }: { onRestore: () => void }) {
