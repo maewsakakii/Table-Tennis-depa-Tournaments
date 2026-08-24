@@ -4,23 +4,25 @@ import { ChevronLeft, ChevronRight, Medal, Trophy, UserRound } from "lucide-reac
 import Image from "next/image";
 import { UIEvent, useMemo, useRef, useState } from "react";
 import { buildBracketRounds, futureSourceLabel } from "@/lib/bracket-ui";
-import type { BracketMatch, PublicPlayer, TournamentSnapshot } from "@/lib/types";
+import type { BracketMatch, Division, PublicPlayer, TournamentSnapshot } from "@/lib/types";
 import styles from "./tournament-bracket.module.css";
 
 export function TournamentBracket({
   snapshot,
   currentPlayerId,
   admin = false,
+  division,
   onSelectMatch,
   onSelectPlayer,
 }: {
   snapshot: TournamentSnapshot;
   currentPlayerId?: string;
   admin?: boolean;
+  division?: Division;
   onSelectMatch?: (match: BracketMatch) => void;
   onSelectPlayer: (player: PublicPlayer) => void;
 }) {
-  const rounds = useMemo(() => buildBracketRounds(snapshot), [snapshot]);
+  const rounds = useMemo(() => buildBracketRounds(snapshot, division), [snapshot, division]);
   const players = useMemo(() => new Map(snapshot.players.map((player) => [player.id, player])), [snapshot.players]);
   const playerPath = useMemo(() => {
     const path = new Set<string>();
@@ -78,7 +80,9 @@ function MatchCard({ match, snapshot, players, currentPlayerId, onPath, admin, o
     <PlayerSlot slot={1} playerId={match.player1Id} sourceId={match.source1MatchId} match={match} snapshot={snapshot} players={players} currentPlayerId={currentPlayerId} onSelectPlayer={onSelectPlayer} />
     <div className={styles.divider}><i /><b>VS</b><i /></div>
     <PlayerSlot slot={2} playerId={match.player2Id} sourceId={match.source2MatchId} match={match} snapshot={snapshot} players={players} currentPlayerId={currentPlayerId} onSelectPlayer={onSelectPlayer} />
-    {actionable && <button className={styles.scoreAction} type="button" onClick={(event) => { event.stopPropagation(); onSelectMatch?.(match); }}>{match.status === "completed" ? "แก้ไขผลการแข่งขัน" : "กรอกคะแนนการแข่งขัน"}</button>}
+    {actionable
+      ? <button className={styles.scoreAction} type="button" onClick={(event) => { event.stopPropagation(); onSelectMatch?.(match); }}>{match.status === "completed" ? "แก้ไขผลการแข่งขัน" : "กรอกคะแนนการแข่งขัน"}</button>
+      : admin && <p className={styles.scoreNote}>{match.status === "bye" ? "ชนะบายอัตโนมัติ · ไม่ต้องกรอกคะแนน" : "กรอกคะแนนได้เมื่อทราบผู้เล่นครบสองฝั่ง"}</p>}
   </article>;
 }
 

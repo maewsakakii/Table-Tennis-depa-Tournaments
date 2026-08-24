@@ -1,3 +1,6 @@
+/** Competition divisions run as two independent knockout tournaments. */
+export type Division = "male" | "female";
+
 export type Player = {
   /** Public display ID (for example DT-01). It is not an authentication secret. */
   id: string;
@@ -7,6 +10,8 @@ export type Player = {
   avatarUrl: string;
   registeredAt: string;
   status: "waiting";
+  /** Admin-only division assignment. Null until an admin sets it in the roster. */
+  gender?: Division | null;
   /** Admin-only test roster marker. Never treat this as an identity credential. */
   isDemo?: boolean;
   demoSlot?: number | null;
@@ -75,6 +80,7 @@ export type BracketMatch = {
   winnerId: string | null;
   status: BracketMatchStatus;
   revision: number;
+  division: Division;
 };
 
 export type KnockoutBracket = {

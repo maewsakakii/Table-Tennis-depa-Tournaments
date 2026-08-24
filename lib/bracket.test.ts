@@ -3,6 +3,7 @@ import test from "node:test";
 
 import {
   deriveMatchHistory,
+  generateDivisionalBrackets,
   generateKnockoutBracket,
   recordBracketScore,
 } from "./bracket.ts";
@@ -97,4 +98,29 @@ test("allows a correction before the downstream match completes and blocks it af
   final = bracket.matches.find((match) => match.round === 2)!;
   bracket = recordBracketScore(bracket, final.id, 11, 9, final.revision);
   assert.throws(() => recordBracketScore(bracket, semiA.id, 11, 2, 2), /รอบถัดไป/);
+});
+
+test("divisional draw builds two independent brackets that never share a match", () => {
+  const bracket = generateDivisionalBrackets(
+    { male: ["DT-01", "DT-02", "DT-03"], female: ["DT-04", "DT-05"] },
+    9,
+    (values) => values,
+  );
+  const male = bracket.matches.filter((match) => match.division === "male");
+  const female = bracket.matches.filter((match) => match.division === "female");
+  assert.equal(male.length, 3);   // 3 players -> bracket of 4 -> 3 matches
+  assert.equal(female.length, 1); // 2 players -> one final
+  assert.equal(bracket.roundCount, 2);
+  // Match ids are unique across divisions, and no match points into the other division.
+  assert.equal(new Set(bracket.matches.map((match) => match.id)).size, bracket.matches.length);
+  const ids = new Map(bracket.matches.map((match) => [match.id, match.division]));
+  for (const match of bracket.matches) {
+    if (match.nextMatchId) assert.equal(ids.get(match.nextMatchId), match.division);
+  }
+  // No male player id ever appears in a female match and vice versa.
+  const maleIds = new Set(["DT-01", "DT-02", "DT-03"]);
+  for (const match of female) {
+    assert.equal(maleIds.has(match.player1Id ?? ""), false);
+    assert.equal(maleIds.has(match.player2Id ?? ""), false);
+  }
 });
