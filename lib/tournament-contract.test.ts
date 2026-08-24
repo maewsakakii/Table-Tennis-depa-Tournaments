@@ -540,7 +540,7 @@ test("gender divisions migration splits the draw and blocks an unassigned roster
   assert.match(sql, /admin_set_player_gender[\s\S]*is_tournament_admin/i);
   // Draw must refuse to run while any player is ungendered, and needs two per division.
   assert.match(sql, /where p\.gender is null[\s\S]*every player must be assigned a gender/i);
-  assert.match(sql, /foreach division in array divisions loop/i);
+  assert.match(sql, /foreach target_division in array divisions loop/i);
   assert.match(sql, /needs at least 2 players/i);
   // Snapshot carries division and gender; permissions stay locked down.
   assert.match(sql, /'division', bm\.division/i);
@@ -563,6 +563,16 @@ test("admins can replace a player's avatar with a validated project object", () 
 });
 
 // The gender RPC must return demo_slot as smallint to match the players column type.
+// A plpgsql variable sharing a name with bracket_matches.division makes every
+// UPDATE ... FROM in the draw raise: column reference "division" is ambiguous.
+test("the draw loop variable never shadows the division column", () => {
+  const sql = readFileSync(new URL("../supabase/migrations/010_gender_divisions.sql", import.meta.url), "utf8");
+  assert.match(sql, /target_division text;/);
+  assert.match(sql, /foreach target_division in array divisions loop/);
+  assert.doesNotMatch(sql, /=\s*division\b/);
+  assert.doesNotMatch(sql, /^\s*division text;/m);
+});
+
 test("admin_set_player_gender returns demo_slot as smallint", () => {
   const sql = readFileSync(new URL("../supabase/migrations/010_gender_divisions.sql", import.meta.url), "utf8");
   assert.match(sql, /admin_set_player_gender[\s\S]*demo_slot smallint\)/i);
