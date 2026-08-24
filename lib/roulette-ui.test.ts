@@ -56,3 +56,27 @@ test("player profile stacks above the roulette overlay", () => {
   assert.match(styles, /z-index:\s*100/);
   assert.match(profileStyles, /\.backdrop\{z-index:\s*120\}/);
 });
+
+// framer-motion throws "Only two keyframes currently supported with spring and inertia
+// animations". A spring paired with a 3+ keyframe array crashes the whole overlay to a
+// blank screen, which is exactly what shipped once reduced motion was turned off.
+test("no spring transition is paired with a multi-keyframe array", () => {
+  const springs = [...component.matchAll(/transition=\{([\s\S]*?)\}\}/g)].map((match) => match[1]);
+  for (const transition of springs) {
+    if (!/type:\s*"spring"/.test(transition)) continue;
+    assert.ok(!/\[[^\]]*,[^\]]*,[^\]]*\]/.test(transition), `spring transition must not carry keyframes: ${transition}`);
+  }
+  // The landing punch keeps its keyframes, so it must be a duration-based tween.
+  assert.match(component, /scale: \[0\.2, 2\.1, 0\.92, 1\][\s\S]{0,400}?duration: 0\.62/);
+});
+
+test("the reel travels and the landing lands with an impact burst", () => {
+  assert.match(component, /styles\.tickA/);
+  assert.match(component, /styles\.tickB/);
+  assert.match(component, /setImpact\(true\)/);
+  assert.match(styles, /@keyframes reelTickA/);
+  assert.match(styles, /@keyframes cameraShake/);
+  assert.match(styles, /@keyframes shockRing/);
+  // Reduced motion must still switch every new effect off.
+  assert.match(styles, /prefers-reduced-motion: reduce[\s\S]*\.tickA,\.tickB,\.speedLines,\.overlayImpact,\.flash,\.shockwave \{ animation: none; \}/);
+});
