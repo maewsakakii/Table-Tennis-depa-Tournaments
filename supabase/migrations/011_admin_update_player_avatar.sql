@@ -6,6 +6,7 @@
 -- Supabase project just received under player-avatars/pending, and it must not
 -- already belong to another player.
 
+drop function if exists public.admin_update_player_avatar(text, text);
 create or replace function public.admin_update_player_avatar(p_public_id text, p_avatar_url text)
 returns table (public_id text, nickname text, department text, email text, avatar_url text, registered_at timestamptz, gender text, is_demo boolean, demo_slot smallint)
 language plpgsql security definer set search_path = pg_catalog

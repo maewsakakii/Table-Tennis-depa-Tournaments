@@ -18,6 +18,8 @@ alter table public.bracket_matches drop constraint if exists bracket_matches_dra
 create unique index if not exists bracket_matches_division_slot_unique
   on public.bracket_matches (draw_version, division, round_number, match_position);
 
+-- Rerunnable across the demo_slot return-type fix: replacing an OUT-parameter row type needs a drop first.
+drop function if exists public.admin_set_player_gender(text, text);
 create or replace function public.admin_set_player_gender(p_public_id text, p_gender text)
 returns table (public_id text, nickname text, department text, email text, avatar_url text, registered_at timestamptz, gender text, is_demo boolean, demo_slot smallint)
 language plpgsql security definer set search_path = pg_catalog
