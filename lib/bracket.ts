@@ -65,6 +65,7 @@ export function generateKnockoutBracket(
         source2MatchId: round === 1 ? null : matchId(division, version, round - 1, position * 2 + 1),
         nextMatchId: round < roundCount ? matchId(division, version, nextRound, Math.floor(position / 2)) : null,
         nextSlot: round < roundCount ? (position % 2 === 0 ? 1 : 2) : null,
+        player1PartnerId: null, player2PartnerId: null,
         score1: null, score2: null, winnerId: null,
         status: "waiting", revision: 0,
       });
@@ -82,19 +83,62 @@ export function generateKnockoutBracket(
   return { version, bracketRevision: 0, roundCount, matches };
 }
 
-/** Builds one independent bracket per division and merges them into a single snapshot. */
+export type MixedTeam = { captain: string; partner: string };
+
+/** Players in the order the draw placed them in that division's first round. */
+export function divisionSeedOrder(bracket: KnockoutBracket, division: Division): string[] {
+  return bracket.matches
+    .filter((match) => match.division === division && match.round === 1)
+    .sort((left, right) => left.position - right.position)
+    .flatMap((match) => [match.player1Id, match.player2Id])
+    .filter((id): id is string => Boolean(id));
+}
+
+/** Pairs by seed position: the first man in the men's draw partners the first woman in the women's. */
+export function buildMixedTeams(maleOrder: string[], femaleOrder: string[]): MixedTeam[] {
+  const count = Math.min(maleOrder.length, femaleOrder.length);
+  return Array.from({ length: count }, (_, index) => ({ captain: maleOrder[index], partner: femaleOrder[index] }));
+}
+
+/** Teams keep their seed order, so team 1 meets team 2, team 3 meets team 4, and so on. */
+export function generateMixedBracket(teams: MixedTeam[], version: number): KnockoutBracket {
+  const keys = teams.map((_, index) => `T${index}`);
+  const seeded = generateKnockoutBracket(keys, version, (values) => values, "mixed");
+  const byKey = new Map(keys.map((key, index) => [key, teams[index]]));
+  const captainOf = (key: string | null) => (key ? byKey.get(key)?.captain ?? null : null);
+  const partnerOf = (key: string | null) => (key ? byKey.get(key)?.partner ?? null : null);
+  return {
+    ...seeded,
+    matches: seeded.matches.map((match) => ({
+      ...match,
+      player1Id: captainOf(match.player1Id),
+      player2Id: captainOf(match.player2Id),
+      player1PartnerId: partnerOf(match.player1Id),
+      player2PartnerId: partnerOf(match.player2Id),
+      winnerId: captainOf(match.winnerId),
+    })),
+  };
+}
+
+/** Builds one independent bracket per division and merges them into a single snapshot.
+ *  The mixed bracket is derived from where the draw placed each player in their own division. */
 export function generateDivisionalBrackets(
-  idsByDivision: Record<Division, string[]>,
+  idsByDivision: Record<"male" | "female", string[]>,
   version: number,
   shuffle: ShufflePlayers,
 ): KnockoutBracket {
-  const divisions: Division[] = ["male", "female"];
-  const built = divisions.map((division) => generateKnockoutBracket(idsByDivision[division], version, shuffle, division));
+  const gendered: Array<"male" | "female"> = ["male", "female"];
+  const built = gendered.map((division) => generateKnockoutBracket(idsByDivision[division], version, shuffle, division));
+  const genderedMatches = built.flatMap((bracket) => bracket.matches);
+  const seedSource: KnockoutBracket = { version, bracketRevision: 0, roundCount: 0, matches: genderedMatches };
+  const teams = buildMixedTeams(divisionSeedOrder(seedSource, "male"), divisionSeedOrder(seedSource, "female"));
+  const mixed = teams.length >= 2 ? generateMixedBracket(teams, version) : null;
+  const matches = mixed ? [...genderedMatches, ...mixed.matches] : genderedMatches;
   return {
     version,
     bracketRevision: 0,
-    roundCount: Math.max(0, ...built.map((bracket) => bracket.roundCount)),
-    matches: built.flatMap((bracket) => bracket.matches),
+    roundCount: Math.max(0, ...built.map((bracket) => bracket.roundCount), mixed?.roundCount ?? 0),
+    matches,
   };
 }
 
@@ -102,9 +146,16 @@ function advanceWinner(matches: BracketMatch[], match: BracketMatch) {
   if (!match.nextMatchId || !match.nextSlot || !match.winnerId) return;
   const next = matches.find((item) => item.id === match.nextMatchId);
   if (!next) throw new Error("โครงสร้างสายการแข่งขันไม่สมบูรณ์");
+  // In mixed doubles the partner travels with the captain, so the whole side advances.
+  const winningPartner = match.winnerId === match.player1Id ? match.player1PartnerId : match.player2PartnerId;
   const previousPlayer = match.nextSlot === 1 ? next.player1Id : next.player2Id;
-  if (match.nextSlot === 1) next.player1Id = match.winnerId;
-  else next.player2Id = match.winnerId;
+  if (match.nextSlot === 1) {
+    next.player1Id = match.winnerId;
+    next.player1PartnerId = winningPartner;
+  } else {
+    next.player2Id = match.winnerId;
+    next.player2PartnerId = winningPartner;
+  }
   if (previousPlayer !== match.winnerId) next.revision += 1;
   if (next.player1Id && next.player2Id) next.status = "ready";
 }
@@ -141,12 +192,20 @@ export function recordBracketScore(
   return { ...bracket, bracketRevision: bracket.bracketRevision + 1, matches };
 }
 
+/** True when the player competed on the side that `winnerId` represents (captain or partner). */
+function wonAsSide(match: BracketMatch, playerId: string) {
+  if (match.winnerId === playerId) return true;
+  if (match.winnerId === match.player1Id) return match.player1PartnerId === playerId;
+  if (match.winnerId === match.player2Id) return match.player2PartnerId === playerId;
+  return false;
+}
+
 export function deriveMatchHistory(bracket: KnockoutBracket, playerId: string): MatchHistoryEntry[] {
   return bracket.matches
-    .filter((match) => match.status === "completed" && match.winnerId === playerId)
+    .filter((match) => match.status === "completed" && wonAsSide(match, playerId))
     .sort((left, right) => left.round - right.round)
     .map((match) => {
-      const playerIsOne = match.player1Id === playerId;
+      const playerIsOne = match.player1Id === playerId || match.player1PartnerId === playerId;
       return {
         matchId: match.id,
         round: match.round,

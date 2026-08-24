@@ -461,6 +461,8 @@ function mapBracketMatch(row: Record<string, unknown>): BracketMatch {
     position: Number(row.position ?? row.match_position),
     player1Id: row.player1Id ? String(row.player1Id) : row.player1_public_id ? String(row.player1_public_id) : null,
     player2Id: row.player2Id ? String(row.player2Id) : row.player2_public_id ? String(row.player2_public_id) : null,
+    player1PartnerId: row.player1PartnerId ? String(row.player1PartnerId) : row.player1_partner_public_id ? String(row.player1_partner_public_id) : null,
+    player2PartnerId: row.player2PartnerId ? String(row.player2PartnerId) : row.player2_partner_public_id ? String(row.player2_partner_public_id) : null,
     source1MatchId: row.source1MatchId ? String(row.source1MatchId) : row.source1_match_id ? String(row.source1_match_id) : null,
     source2MatchId: row.source2MatchId ? String(row.source2MatchId) : row.source2_match_id ? String(row.source2_match_id) : null,
     nextMatchId: row.nextMatchId ? String(row.nextMatchId) : row.next_match_id ? String(row.next_match_id) : null,
@@ -492,14 +494,14 @@ function mapSnapshotPayload(payload: unknown): TournamentSnapshot {
 }
 
 /** Enforces the division rule: every player must be assigned, and each division needs a real bracket. */
-export function splitByDivision(players: Player[]): Record<Division, string[]> {
+export function splitByDivision(players: Player[]): Record<"male" | "female", string[]> {
   const ungendered = players.filter((player) => player.gender !== "male" && player.gender !== "female");
   if (ungendered.length > 0) {
     throw new Error(`ยังมีผู้เล่นที่ยังไม่ได้ระบุเพศ ${ungendered.length} คน กรุณาระบุให้ครบก่อนจับสาย`);
   }
-  const byDivision: Record<Division, string[]> = { male: [], female: [] };
-  for (const player of players) byDivision[player.gender as Division].push(player.id);
-  for (const division of ["male", "female"] as Division[]) {
+  const byDivision: Record<"male" | "female", string[]> = { male: [], female: [] };
+  for (const player of players) byDivision[player.gender as "male" | "female"].push(player.id);
+  for (const division of ["male", "female"] as Array<"male" | "female">) {
     if (byDivision[division].length < 2) {
       throw new Error(`สาย${division === "male" ? "ชาย" : "หญิง"}ต้องมีผู้เล่นอย่างน้อย 2 คน (ตอนนี้มี ${byDivision[division].length} คน)`);
     }

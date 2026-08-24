@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronLeft, ChevronRight, Medal, Trophy, UserRound } from "lucide-react";
+import { ChevronLeft, ChevronRight, Medal, Trophy, UserRound, Users } from "lucide-react";
 import Image from "next/image";
 import { UIEvent, useMemo, useRef, useState } from "react";
 import { buildBracketRounds, futureSourceLabel } from "@/lib/bracket-ui";
@@ -77,24 +77,46 @@ function MatchCard({ match, snapshot, players, currentPlayerId, onPath, admin, o
   const actionable = admin && Boolean(onSelectMatch) && match.player1Id && match.player2Id && (match.status === "ready" || match.status === "completed");
   return <article className={`${styles.matchCard} ${onPath ? styles.playerPath : ""} ${actionable ? styles.actionable : ""}`} onClick={actionable ? () => onSelectMatch?.(match) : undefined}>
     <div className={styles.matchTop}><span>คู่ {match.position + 1}</span><Status match={match} /></div>
-    <PlayerSlot slot={1} playerId={match.player1Id} sourceId={match.source1MatchId} match={match} snapshot={snapshot} players={players} currentPlayerId={currentPlayerId} onSelectPlayer={onSelectPlayer} />
+    <PlayerSlot slot={1} playerId={match.player1Id} partnerId={match.player1PartnerId} sourceId={match.source1MatchId} match={match} snapshot={snapshot} players={players} currentPlayerId={currentPlayerId} onSelectPlayer={onSelectPlayer} />
     <div className={styles.divider}><i /><b>VS</b><i /></div>
-    <PlayerSlot slot={2} playerId={match.player2Id} sourceId={match.source2MatchId} match={match} snapshot={snapshot} players={players} currentPlayerId={currentPlayerId} onSelectPlayer={onSelectPlayer} />
+    <PlayerSlot slot={2} playerId={match.player2Id} partnerId={match.player2PartnerId} sourceId={match.source2MatchId} match={match} snapshot={snapshot} players={players} currentPlayerId={currentPlayerId} onSelectPlayer={onSelectPlayer} />
     {actionable
       ? <button className={styles.scoreAction} type="button" onClick={(event) => { event.stopPropagation(); onSelectMatch?.(match); }}>{match.status === "completed" ? "แก้ไขผลการแข่งขัน" : "กรอกคะแนนการแข่งขัน"}</button>
       : admin && <p className={styles.scoreNote}>{match.status === "bye" ? "ชนะบายอัตโนมัติ · ไม่ต้องกรอกคะแนน" : "กรอกคะแนนได้เมื่อทราบผู้เล่นครบสองฝั่ง"}</p>}
   </article>;
 }
 
-function PlayerSlot({ slot, playerId, sourceId, match, snapshot, players, currentPlayerId, onSelectPlayer }: { slot: 1 | 2; playerId: string | null; sourceId: string | null; match: BracketMatch; snapshot: TournamentSnapshot; players: Map<string, PublicPlayer>; currentPlayerId?: string; onSelectPlayer: (player: PublicPlayer) => void }) {
+function PlayerSlot({ slot, playerId, partnerId, sourceId, match, snapshot, players, currentPlayerId, onSelectPlayer }: { slot: 1 | 2; playerId: string | null; partnerId: string | null; sourceId: string | null; match: BracketMatch; snapshot: TournamentSnapshot; players: Map<string, PublicPlayer>; currentPlayerId?: string; onSelectPlayer: (player: PublicPlayer) => void }) {
   const player = playerId ? players.get(playerId) : null;
+  const partner = partnerId ? players.get(partnerId) : null;
   const loser = Boolean(playerId && match.status === "completed" && match.winnerId && match.winnerId !== playerId);
-  const isCurrent = playerId === currentPlayerId;
+  const isCurrent = playerId === currentPlayerId || (partnerId !== null && partnerId === currentPlayerId);
   const score = slot === 1 ? match.score1 : match.score2;
   if (!player) {
     if (match.status === "bye") return <div className={styles.futureSlot}><span>—</span><div><b>บาย</b><small>ไม่มีคู่แข่งในรอบนี้</small></div></div>;
     return <div className={styles.futureSlot}><span>?</span><div><b>{futureSourceLabel(snapshot, sourceId)}</b><small>ยังไม่ทราบผู้เล่น</small></div></div>;
   }
+
+  // Mixed doubles: one side is a pair, shown as overlapping avatars and two names.
+  if (partner) {
+    return <div className={`${styles.teamSlot} ${loser ? styles.loser : ""} ${isCurrent ? styles.currentPlayer : ""}`}>
+      <div className={styles.teamAvatars}>
+        <button type="button" className={styles.teamAvatarButton} onClick={(event) => { event.stopPropagation(); onSelectPlayer(player); }} aria-label={`ดูโปรไฟล์ ${player.nickname}`}>
+          <Image src={player.avatarUrl} alt="" fill sizes="38px" unoptimized />
+        </button>
+        <button type="button" className={`${styles.teamAvatarButton} ${styles.teamAvatarBack}`} onClick={(event) => { event.stopPropagation(); onSelectPlayer(partner); }} aria-label={`ดูโปรไฟล์ ${partner.nickname}`}>
+          <Image src={partner.avatarUrl} alt="" fill sizes="38px" unoptimized />
+        </button>
+      </div>
+      <div className={styles.teamNames}>
+        <b>{player.nickname}</b>
+        <b>{partner.nickname}</b>
+        <span>{player.id} · {partner.id}</span>
+      </div>
+      {score !== null ? <strong>{score}</strong> : <Users size={16} />}
+    </div>;
+  }
+
   return <button type="button" className={`${styles.playerSlot} ${loser ? styles.loser : ""} ${isCurrent ? styles.currentPlayer : ""}`} onClick={(event) => { event.stopPropagation(); onSelectPlayer(player); }} aria-label={`ดูโปรไฟล์ ${player.nickname}`}><div className={styles.avatar}><Image src={player.avatarUrl} alt="" fill sizes="42px" unoptimized /></div><div><b>{player.nickname}</b><span>{player.id} · {player.department}</span></div>{score !== null ? <strong>{score}</strong> : <UserRound size={16} />}</button>;
 }
 

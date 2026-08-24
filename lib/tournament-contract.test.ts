@@ -154,7 +154,7 @@ test("one draw locks registration, opens private reveal, and returns only that p
   saveLocalPlayer(first, "DT-AAAA-BBBB-CCCC-DDDD-EEEE-FFFF");
 
   const draw = await generateHiddenAssignments();
-  assert.equal(draw.pairs.length, 2);
+  assert.equal(draw.pairs.length, 3); // one male, one female, one mixed pair
   assert.equal(JSON.stringify(draw).includes("avatarUrl"), false);
   const state = await getTournamentState();
   assert.equal(state.version, draw.version);
@@ -197,7 +197,7 @@ test("an odd local roster creates exactly one Round 1 BYE that can be revealed",
 
   const draw = await generateHiddenAssignments();
   const byes = draw.pairs.filter((pair) => pair.player2Id === null);
-  assert.equal(draw.pairs.length, 3);
+  assert.equal(draw.pairs.length, 4); // 2 male + 1 female + 1 mixed
   assert.equal(byes.length, 1);
 
   saveLocalPlayer(makePlayer(byes[0].player1Id, "male"), "DT-AAAA-BBBB-CCCC-DDDD-EEEE-FFFF");
@@ -234,7 +234,7 @@ test("the first local draw compacts a quota-heavy legacy state before storing hi
   assert.ok(30_000 - storage.used < 100);
 
   const draw = await generateHiddenAssignments();
-  assert.equal(draw.pairs.length, 2);
+  assert.equal(draw.pairs.length, 3); // one male, one female, one mixed pair
   assert.equal((storage.getItem(stateKey) ?? "").includes("data:image"), false);
   assert.equal((storage.getItem("office-smash-hidden-draw") ?? "").includes("avatar"), false);
   delete process.env.NEXT_PUBLIC_ENABLE_LOCAL_DEMO;
@@ -401,7 +401,7 @@ test("deleting a player clears the hidden draw, closes reveal, and refill restor
   process.env.NEXT_PUBLIC_ENABLE_LOCAL_DEMO = "true";
   const filled = await adminFillDemoPlayers();
   const draw = await generateHiddenAssignments();
-  assert.equal(draw.pairs.length, 5);
+  assert.equal(draw.pairs.length, 8); // 5 gendered pairs plus 3 from the five mixed teams
   await updateTournamentControls({ revealOpen: true });
 
   const deleted = filled.find((player) => player.demoSlot === 4)!;
@@ -565,6 +565,27 @@ test("admins can replace a player's avatar with a validated project object", () 
 // The gender RPC must return demo_slot as smallint to match the players column type.
 // A plpgsql variable sharing a name with bracket_matches.division makes every
 // UPDATE ... FROM in the draw raise: column reference "division" is ambiguous.
+test("mixed doubles migration pairs by seed and carries partners through scoring", () => {
+  const sql = readFileSync(new URL("../supabase/migrations/012_mixed_doubles_division.sql", import.meta.url), "utf8");
+  assert.match(sql, /add column if not exists player1_partner_id uuid references public\.players\(id\)/i);
+  assert.match(sql, /add column if not exists player2_partner_id uuid references public\.players\(id\)/i);
+  assert.match(sql, /check \(division in \('male', 'female', 'mixed'\)\)/i);
+  // Teams come from where the draw placed each player, ordered by bracket position.
+  assert.match(sql, /into male_order[\s\S]*bm\.division = 'male' and bm\.round_number = 1/i);
+  assert.match(sql, /into female_order[\s\S]*bm\.division = 'female' and bm\.round_number = 1/i);
+  assert.match(sql, /order by seed\.match_position, seed\.slot/i);
+  assert.match(sql, /team_count := least\(/i);
+  // A winning side promotes its partner too, on both the BYE path and the scoring path.
+  assert.match(sql, /player1_id = source\.winner_id, player1_partner_id = source\.player1_partner_id/i);
+  assert.match(sql, /chosen_partner := target\.player1_partner_id/i);
+  assert.match(sql, /player1_partner_id = case when target\.next_slot = 1 then chosen_partner/i);
+  // The singles-only private reveal must not pick up mixed rows.
+  assert.match(sql, /bm\.round_number = 1 and bm\.division <> 'mixed'/i);
+  assert.match(sql, /'player1_partner_public_id', partner1\.public_id/i);
+  assert.match(sql, /revoke all on function public\.link_division_bracket\(integer, text, integer\) from public, anon, authenticated/i);
+  assert.doesNotMatch(sql, /drop\s+table/i);
+});
+
 test("the draw loop variable never shadows the division column", () => {
   const sql = readFileSync(new URL("../supabase/migrations/010_gender_divisions.sql", import.meta.url), "utf8");
   assert.match(sql, /target_division text;/);
@@ -602,7 +623,7 @@ test("local full bracket persistence is compact and player snapshots are recover
   const issued = await adminIssuePlayerRecoveryCode(players[0].id);
   await restorePlayerWithRecoveryCode(issued.recoveryCode);
   const generated = await generateTournamentBracket();
-  assert.equal(generated.matches.length, 14); // two divisions of five: 7 + 7
+  assert.equal(generated.matches.length, 21); // five per division (7 + 7) plus five mixed teams (7)
   assert.doesNotMatch(storage.getItem("office-smash-hidden-draw") ?? "", /avatar|data:image/i);
   assert.deepEqual(await getAdminTournamentSnapshot(), generated);
   const playerView = await getPlayerTournamentSnapshot();

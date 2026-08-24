@@ -1,5 +1,6 @@
-/** Competition divisions run as two independent knockout tournaments. */
-export type Division = "male" | "female";
+/** Competition divisions run as independent knockout tournaments. "mixed" pairs one man with
+ *  one woman per side, so each slot carries a partner alongside the captain. */
+export type Division = "male" | "female" | "mixed";
 
 export type Player = {
   /** Public display ID (for example DT-01). It is not an authentication secret. */
@@ -71,6 +72,9 @@ export type BracketMatch = {
   position: number;
   player1Id: string | null;
   player2Id: string | null;
+  /** Mixed doubles only: the partner competing alongside player1/player2. */
+  player1PartnerId: string | null;
+  player2PartnerId: string | null;
   source1MatchId: string | null;
   source2MatchId: string | null;
   nextMatchId: string | null;

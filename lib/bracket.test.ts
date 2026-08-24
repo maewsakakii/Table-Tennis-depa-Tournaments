@@ -2,7 +2,9 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  buildMixedTeams,
   deriveMatchHistory,
+  divisionSeedOrder,
   generateDivisionalBrackets,
   generateKnockoutBracket,
   recordBracketScore,
@@ -123,4 +125,54 @@ test("divisional draw builds two independent brackets that never share a match",
     assert.equal(maleIds.has(match.player1Id ?? ""), false);
     assert.equal(maleIds.has(match.player2Id ?? ""), false);
   }
+});
+
+test("mixed doubles pairs by seed position and keeps both partners together", () => {
+  const bracket = generateDivisionalBrackets(
+    { male: ["M1", "M2", "M3", "M4"], female: ["F1", "F2", "F3", "F4"] },
+    5,
+    (values) => values,
+  );
+  const maleOrder = divisionSeedOrder(bracket, "male");
+  const femaleOrder = divisionSeedOrder(bracket, "female");
+  const teams = buildMixedTeams(maleOrder, femaleOrder);
+  assert.deepEqual(teams, [
+    { captain: maleOrder[0], partner: femaleOrder[0] },
+    { captain: maleOrder[1], partner: femaleOrder[1] },
+    { captain: maleOrder[2], partner: femaleOrder[2] },
+    { captain: maleOrder[3], partner: femaleOrder[3] },
+  ]);
+
+  const mixed = bracket.matches.filter((match) => match.division === "mixed");
+  assert.equal(mixed.length, 3); // four teams: two semi-finals and a final
+  const firstRound = mixed.filter((match) => match.round === 1).sort((a, b) => a.position - b.position);
+  // Team 1 meets team 2, team 3 meets team 4 — seed order is preserved, not reshuffled.
+  assert.equal(firstRound[0].player1Id, teams[0].captain);
+  assert.equal(firstRound[0].player1PartnerId, teams[0].partner);
+  assert.equal(firstRound[0].player2Id, teams[1].captain);
+  assert.equal(firstRound[0].player2PartnerId, teams[1].partner);
+  assert.equal(firstRound[1].player1Id, teams[2].captain);
+  assert.equal(firstRound[1].player2PartnerId, teams[3].partner);
+  // Nobody from the gendered brackets is mixed into the wrong side.
+  for (const match of mixed) {
+    assert.ok(!match.player1Id || maleOrder.includes(match.player1Id));
+    assert.ok(!match.player1PartnerId || femaleOrder.includes(match.player1PartnerId));
+  }
+});
+
+test("a winning mixed side advances with its partner and both share the win", () => {
+  let bracket = generateDivisionalBrackets(
+    { male: ["M1", "M2", "M3", "M4"], female: ["F1", "F2", "F3", "F4"] },
+    6,
+    (values) => values,
+  );
+  const semi = bracket.matches.find((match) => match.division === "mixed" && match.round === 1 && match.position === 0)!;
+  bracket = recordBracketScore(bracket, semi.id, 11, 6, semi.revision);
+  const final = bracket.matches.find((match) => match.id === semi.nextMatchId)!;
+  assert.equal(final.player1Id, semi.player1Id);
+  assert.equal(final.player1PartnerId, semi.player1PartnerId);
+  // The partner gets the same history entry as the captain.
+  assert.equal(deriveMatchHistory(bracket, semi.player1Id!).length, 1);
+  assert.equal(deriveMatchHistory(bracket, semi.player1PartnerId!).length, 1);
+  assert.deepEqual(deriveMatchHistory(bracket, semi.player2Id!), []);
 });
