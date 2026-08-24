@@ -44,9 +44,9 @@ begin
   returning p.* into updated_player;
   if updated_player.id is null then raise exception 'player not found'; end if;
 
-  return query select updated_player.public_id, updated_player.nickname, updated_player.department,
-    updated_player.email, updated_player.avatar_url, updated_player.registered_at,
-    updated_player.gender, updated_player.is_demo, updated_player.demo_slot;
+  return query select updated_player.public_id::text, updated_player.nickname::text, updated_player.department::text,
+    updated_player.email::text, updated_player.avatar_url::text, updated_player.registered_at::timestamptz,
+    updated_player.gender::text, updated_player.is_demo::boolean, updated_player.demo_slot::smallint;
 end;
 $$;
 
