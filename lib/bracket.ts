@@ -217,3 +217,11 @@ export function deriveMatchHistory(bracket: KnockoutBracket, playerId: string): 
       };
     });
 }
+
+/** Player profile statistics are singles-only; mixed doubles remain visible in its own bracket. */
+export function deriveSinglesMatchHistory(bracket: KnockoutBracket, playerId: string): MatchHistoryEntry[] {
+  return deriveMatchHistory(
+    { ...bracket, matches: bracket.matches.filter((match) => match.division !== "mixed") },
+    playerId,
+  );
+}

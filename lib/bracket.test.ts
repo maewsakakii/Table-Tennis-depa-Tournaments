@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   buildMixedTeams,
   deriveMatchHistory,
+  deriveSinglesMatchHistory,
   divisionSeedOrder,
   generateDivisionalBrackets,
   generateKnockoutBracket,
@@ -175,4 +176,25 @@ test("a winning mixed side advances with its partner and both share the win", ()
   assert.equal(deriveMatchHistory(bracket, semi.player1Id!).length, 1);
   assert.equal(deriveMatchHistory(bracket, semi.player1PartnerId!).length, 1);
   assert.deepEqual(deriveMatchHistory(bracket, semi.player2Id!), []);
+});
+
+test("individual profile history excludes mixed doubles scores", () => {
+  let bracket = generateDivisionalBrackets(
+    { male: ["M1", "M2", "M3", "M4"], female: ["F1", "F2", "F3", "F4"] },
+    7,
+    (values) => values,
+  );
+  const singles = bracket.matches.find((match) => match.division === "male" && match.round === 1 && match.position === 0)!;
+  const doubles = bracket.matches.find((match) => match.division === "mixed" && match.round === 1 && match.position === 0)!;
+  bracket = recordBracketScore(bracket, singles.id, 7, 5, singles.revision);
+  bracket = recordBracketScore(bracket, doubles.id, 7, 2, doubles.revision);
+
+  assert.deepEqual(deriveSinglesMatchHistory(bracket, "M1"), [{
+    matchId: singles.id,
+    round: 1,
+    opponentId: "M2",
+    scoreFor: 7,
+    scoreAgainst: 5,
+  }]);
+  assert.equal(deriveMatchHistory(bracket, "M1").length, 2);
 });

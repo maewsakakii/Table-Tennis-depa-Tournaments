@@ -24,7 +24,7 @@ import { ChangeEvent, FormEvent, useEffect, useMemo, useRef, useState } from "re
 import { MatchmakingRoulette } from "@/components/matchmaking-roulette";
 import { PlayerProfileSheet } from "@/components/player-profile-sheet";
 import { TournamentBracket } from "@/components/tournament-bracket";
-import { deriveMatchHistory } from "@/lib/bracket";
+import { deriveSinglesMatchHistory } from "@/lib/bracket";
 import { isAcceptedAvatar } from "@/lib/local-avatar";
 import { formatMatchDate } from "@/lib/match-date";
 import {
@@ -333,7 +333,7 @@ export function RegistrationExperience() {
             </section>}
           </motion.div>
         ) : player ? (
-          <Lobby key="lobby" player={player} tournament={tournament} snapshot={playerSnapshot} recoveryCode={recoveryCode} revealLoading={revealLoading} bracketReady={Boolean(playerSnapshot?.matches.length)} wins={playerSnapshot ? deriveMatchHistory(playerSnapshot, player.id).length : 0} passStatus={playerPassStatus(playerSnapshot, player.id)} error={lobbyError} onReveal={revealOpponent} onOpenBracket={() => setBracketOpen(true)} reduceMotion={Boolean(reduceMotion)} />
+          <Lobby key="lobby" player={player} tournament={tournament} snapshot={playerSnapshot} recoveryCode={recoveryCode} revealLoading={revealLoading} bracketReady={Boolean(playerSnapshot?.matches.length)} wins={playerSnapshot ? deriveSinglesMatchHistory(playerSnapshot, player.id).length : 0} passStatus={playerPassStatus(playerSnapshot, player.id)} error={lobbyError} onReveal={revealOpponent} onOpenBracket={() => setBracketOpen(true)} reduceMotion={Boolean(reduceMotion)} />
         ) : null}
       </AnimatePresence>
 
