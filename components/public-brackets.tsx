@@ -1,10 +1,13 @@
 "use client";
 
-import { Radio, RefreshCw, Trophy } from "lucide-react";
+import { CalendarDays, Radio, RefreshCw, Trophy } from "lucide-react";
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { PlayerProfileSheet } from "@/components/player-profile-sheet";
+import { TodayScheduleSheet } from "@/components/today-schedule-sheet";
 import { TournamentBracket } from "@/components/tournament-bracket";
+import { matchesScheduledOn } from "@/lib/bracket-ui";
+import { localDateKey } from "@/lib/match-date";
 import { getPublicTournamentSnapshot, subscribeToTournamentState } from "@/lib/tournament-store";
 import type { Division, PublicPlayer, TournamentSnapshot } from "@/lib/types";
 import styles from "./public-brackets.module.css";
@@ -22,6 +25,10 @@ export function PublicBrackets() {
   const [profile, setProfile] = useState<PublicPlayer | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
+  // Resolved after mount so the server-rendered markup does not bake in a stale date.
+  const [today, setToday] = useState("");
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const todayCount = useMemo(() => today ? matchesScheduledOn(snapshot, today).length : 0, [snapshot, today]);
 
   const refresh = useCallback(async () => {
     setError("");
@@ -31,7 +38,7 @@ export function PublicBrackets() {
   }, []);
 
   useEffect(() => {
-    const timer = window.setTimeout(() => { void refresh(); }, 0);
+    const timer = window.setTimeout(() => { setToday(localDateKey()); void refresh(); }, 0);
     const interval = window.setInterval(() => { void refresh(); }, 15_000);
     const unsubscribe = subscribeToTournamentState(() => { void refresh(); });
     return () => { window.clearTimeout(timer); window.clearInterval(interval); unsubscribe(); };
@@ -41,6 +48,7 @@ export function PublicBrackets() {
     <header className={styles.topbar}><Link href="/" className={styles.brand}><span><Trophy size={20} /></span><div><b>depa TABLE TENNIS</b><small>PUBLIC BRACKETS · 2026</small></div></Link><div className={styles.live}><i /> LIVE</div></header>
     <div className={styles.body}>
       <section className={styles.hero}><div><span><Radio size={13} /> TOURNAMENT VIEWER</span><h1>สายการแข่งขัน</h1><p>ติดตามคู่แข่งขัน วันแข่งขัน และผลคะแนนล่าสุดได้จากหน้านี้</p></div><button type="button" onClick={() => void refresh()} disabled={loading} aria-label="รีเฟรชสายการแข่งขัน"><RefreshCw size={18} className={loading ? styles.spinning : ""} /></button></section>
+      {snapshot.matches.length > 0 && <button type="button" className={styles.scheduleBar} onClick={() => setScheduleOpen(true)}><CalendarDays size={16} /><span>ตารางแข่งวันนี้</span><b>{todayCount} คู่</b></button>}
       {error && <div className={styles.error}>{error}<button type="button" onClick={() => void refresh()}>ลองอีกครั้ง</button></div>}
       {!error && loading && !snapshot.matches.length ? <div className={styles.loading}><i /><span>กำลังโหลดสายการแข่งขัน</span></div> : <>
         {snapshot.matches.length > 0 && <div className={styles.summary}><b>DRAW #{snapshot.version}</b><span>อัปเดตผลครั้งที่ {snapshot.bracketRevision}</span></div>}
@@ -48,6 +56,7 @@ export function PublicBrackets() {
         <TournamentBracket snapshot={snapshot} division={division} onSelectPlayer={setProfile} />
       </>}
     </div>
+    {scheduleOpen && <TodayScheduleSheet snapshot={snapshot} dateKey={today || localDateKey()} onClose={() => setScheduleOpen(false)} onSelectPlayer={(player) => { setScheduleOpen(false); setProfile(player); }} />}
     {profile && <PlayerProfileSheet player={profile} snapshot={snapshot} onClose={() => setProfile(null)} />}
   </main>;
 }

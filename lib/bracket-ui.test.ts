@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import test from "node:test";
 
-import { buildBracketRounds, futureSourceLabel } from "./bracket-ui.ts";
+import { buildBracketRounds, futureSourceLabel, matchesScheduledOn } from "./bracket-ui.ts";
+import { localDateKey } from "./match-date.ts";
 import type { TournamentSnapshot } from "./types.ts";
 
 const snapshot: TournamentSnapshot = {
@@ -67,4 +68,28 @@ test("buildBracketRounds filters to one division and derives that division's rou
   assert.deepEqual(male.map((round) => round.matches.length), [2, 1]);
   assert.deepEqual(female.map((round) => round.matches.length), [1]);
   assert.equal(female.length, 1);
+});
+
+test("today's schedule collects every division, skips byes, and orders by division then round", () => {
+  const base = { version: 4, player1PartnerId: null, player2PartnerId: null, source1MatchId: null, source2MatchId: null, nextMatchId: null, nextSlot: null, score1: null, score2: null, winnerId: null, revision: 0 };
+  const dayView: TournamentSnapshot = {
+    version: 4, bracketRevision: 0, roundCount: 2, players: [],
+    matches: [
+      { ...base, id: "f1", round: 1, position: 0, player1Id: "DT-11", player2Id: "DT-12", status: "ready", division: "female", scheduledDate: "2026-09-09" },
+      { ...base, id: "m2", round: 2, position: 0, player1Id: null, player2Id: null, status: "waiting", division: "male", scheduledDate: "2026-09-09" },
+      { ...base, id: "m1", round: 1, position: 0, player1Id: "DT-01", player2Id: "DT-02", status: "ready", division: "male", scheduledDate: "2026-09-09" },
+      { ...base, id: "m-bye", round: 1, position: 1, player1Id: "DT-03", player2Id: null, status: "bye", division: "male", scheduledDate: "2026-09-09" },
+      { ...base, id: "m-other", round: 1, position: 2, player1Id: "DT-05", player2Id: "DT-06", status: "ready", division: "male", scheduledDate: "2026-09-10" },
+      { ...base, id: "m-none", round: 1, position: 3, player1Id: "DT-07", player2Id: "DT-08", status: "ready", division: "male", scheduledDate: null },
+    ],
+  };
+  const schedule = matchesScheduledOn(dayView, "2026-09-09");
+  assert.deepEqual(schedule.map((entry) => entry.match.id), ["m1", "m2", "f1"]);
+  assert.deepEqual(schedule.map((entry) => entry.divisionLabel), ["สายชาย", "สายชาย", "สายหญิง"]);
+  assert.deepEqual(schedule.map((entry) => entry.roundLabel), ["รอบรองชนะเลิศ", "รอบชิงชนะเลิศ", "รอบชิงชนะเลิศ"]);
+  assert.deepEqual(matchesScheduledOn(dayView, "2026-09-11"), []);
+});
+
+test("today's date key follows the viewer's timezone, not UTC", () => {
+  assert.equal(localDateKey(new Date(2026, 8, 9, 23, 30)), "2026-09-09");
 });
