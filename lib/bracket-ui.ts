@@ -37,3 +37,36 @@ export function futureSourceLabel(snapshot: TournamentSnapshot, sourceMatchId: s
   const divisionRounds = snapshot.matches.reduce((max, match) => match.division === source.division ? Math.max(max, match.round) : max, 0);
   return `ผู้ชนะคู่ ${source.position + 1} · ${roundLabel(source.round, divisionRounds)}`;
 }
+
+export const divisionLabels: Record<Division, string> = {
+  male: "สายชาย",
+  female: "สายหญิง",
+  mixed: "คู่ผสม",
+};
+
+export type ScheduledMatchView = {
+  match: BracketMatch;
+  divisionLabel: string;
+  roundLabel: string;
+};
+
+/** Matches an organizer scheduled for one calendar day, across every division.
+ *  Byes are left out: nobody plays them. */
+export function matchesScheduledOn(snapshot: TournamentSnapshot, dateKey: string): ScheduledMatchView[] {
+  const roundCounts = snapshot.matches.reduce((counts, match) => {
+    counts[match.division] = Math.max(counts[match.division] ?? 0, match.round);
+    return counts;
+  }, {} as Record<string, number>);
+  const divisionOrder: Division[] = ["male", "female", "mixed"];
+  return snapshot.matches
+    .filter((match) => match.status !== "bye" && match.scheduledDate?.slice(0, 10) === dateKey)
+    .sort((left, right) =>
+      divisionOrder.indexOf(left.division) - divisionOrder.indexOf(right.division)
+      || left.round - right.round
+      || left.position - right.position)
+    .map((match) => ({
+      match,
+      divisionLabel: divisionLabels[match.division],
+      roundLabel: roundLabel(match.round, roundCounts[match.division] ?? match.round),
+    }));
+}
