@@ -1,12 +1,13 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { ArrowLeft, CircleAlert, Copy, Eye, EyeOff, Gamepad2, ImagePlus, KeyRound, LockKeyhole, LogOut, Pencil, Radio, RefreshCw, Shuffle, Sparkles, Trash2, Trophy, Users, Wifi, X } from "lucide-react";
+import { ArrowLeft, CalendarDays, CircleAlert, Copy, Eye, EyeOff, Gamepad2, ImagePlus, KeyRound, LockKeyhole, LogOut, Pencil, Radio, RefreshCw, Shuffle, Sparkles, Trash2, Trophy, Users, Wifi, X } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
-import { ChangeEvent, FormEvent, useCallback, useEffect, useRef, useState } from "react";
+import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { PlayerProfileSheet } from "@/components/player-profile-sheet";
 import { ScoreEntrySheet } from "@/components/score-entry-sheet";
+import { TodayScheduleSheet } from "@/components/today-schedule-sheet";
 import { TournamentBracket } from "@/components/tournament-bracket";
 import {
   adminSignIn,
@@ -29,7 +30,9 @@ import {
   updateMatchDate,
   updateTournamentControls,
 } from "@/lib/tournament-store";
+import { matchesScheduledOn } from "@/lib/bracket-ui";
 import { isAcceptedAvatar } from "@/lib/local-avatar";
+import { localDateKey } from "@/lib/match-date";
 import type { BracketMatch, Division, Player, PublicPlayer, TournamentSnapshot, TournamentState } from "@/lib/types";
 import styles from "./admin-experience.module.css";
 
@@ -89,6 +92,10 @@ function AdminDashboard({ demo, onSignOut }: { demo: boolean; onSignOut: () => v
   const [bracketDivision, setBracketDivision] = useState<Division>("male");
   const [rosterOpen, setRosterOpen] = useState(false);
   const [rosterFilter, setRosterFilter] = useState<"all" | Division>("all");
+  // Resolved after mount so the server-rendered markup does not bake in a stale date.
+  const [today, setToday] = useState("");
+  const [scheduleOpen, setScheduleOpen] = useState(false);
+  const todayCount = useMemo(() => today ? matchesScheduledOn(snapshot, today).length : 0, [snapshot, today]);
 
   const loadData = useCallback(async () => {
     setLoading(true); setError("");
@@ -101,7 +108,7 @@ function AdminDashboard({ demo, onSignOut }: { demo: boolean; onSignOut: () => v
     finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { const timer = window.setTimeout(() => { void loadData(); }, 0); return () => window.clearTimeout(timer); }, [loadData]);
+  useEffect(() => { const timer = window.setTimeout(() => { setToday(localDateKey()); void loadData(); }, 0); return () => window.clearTimeout(timer); }, [loadData]);
   useEffect(() => subscribeToTournamentState((state) => {
     setTournament(state);
     if (state.status === "locked") void getAdminTournamentSnapshot().then(setSnapshot).catch((cause) => setError(cause instanceof Error ? cause.message : "โหลดสายการแข่งขันไม่สำเร็จ"));
@@ -221,12 +228,13 @@ function AdminDashboard({ demo, onSignOut }: { demo: boolean; onSignOut: () => v
         <button className={styles.rosterOpenBtn} type="button" onClick={() => { setRosterFilter("all"); setRosterOpen(true); }}><Users size={16} /> ดูและจัดการรายชื่อ</button>
       </section>
 
-      <section className={styles.bracketPanel}><div className={styles.sectionHead}><div><span>LIVE BRACKET · REV {snapshot.bracketRevision}</span><h2>สายการแข่งขันรอบที่ 1 ทั้งหมดและรอบถัดไป</h2></div><Trophy size={20} /></div>{snapshot.matches.length > 0 && <p className={styles.privateNote}><LockKeyhole size={14} /> {readyMatchCount ? `พร้อมกรอกคะแนน ${readyMatchCount} คู่ · เลือกวันแข่งหรือแตะการ์ดเพื่อกรอกคะแนน` : "เลือกวันแข่งได้ทุกคู่ · คู่ที่ชนะบายจะข้ามไปรอบถัดไปเอง"}</p>}{snapshot.matches.length > 0 && <div className={styles.divisionTabs} role="tablist" aria-label="เลือกสายการแข่งขัน">{([["male", "สายชาย"], ["female", "สายหญิง"], ["mixed", "คู่ผสม"]] as Array<[Division, string]>).map(([key, label]) => <button key={key} type="button" role="tab" aria-selected={bracketDivision === key} className={bracketDivision === key ? styles.divisionActive : ""} onClick={() => setBracketDivision(key)}>{label}<small>{snapshot.matches.filter((match) => match.division === key && match.round === 1).length} คู่แรก</small></button>)}</div>}<TournamentBracket snapshot={snapshot} admin division={bracketDivision} onSelectMatch={setScoreTarget} onUpdateMatchDate={(match, value) => void saveMatchDate(match, value)} onSelectPlayer={setProfileTarget} /></section>
+      <section className={styles.bracketPanel}><div className={styles.sectionHead}><div><span>LIVE BRACKET · REV {snapshot.bracketRevision}</span><h2>สายการแข่งขันรอบที่ 1 ทั้งหมดและรอบถัดไป</h2></div><Trophy size={20} /></div>{snapshot.matches.length > 0 && <p className={styles.privateNote}><LockKeyhole size={14} /> {readyMatchCount ? `พร้อมกรอกคะแนน ${readyMatchCount} คู่ · เลือกวันแข่งหรือแตะการ์ดเพื่อกรอกคะแนน` : "เลือกวันแข่งได้ทุกคู่ · คู่ที่ชนะบายจะข้ามไปรอบถัดไปเอง"}</p>}{snapshot.matches.length > 0 && <div className={styles.divisionTabs} role="tablist" aria-label="เลือกสายการแข่งขัน">{([["male", "สายชาย"], ["female", "สายหญิง"], ["mixed", "คู่ผสม"]] as Array<[Division, string]>).map(([key, label]) => <button key={key} type="button" role="tab" aria-selected={bracketDivision === key} className={bracketDivision === key ? styles.divisionActive : ""} onClick={() => setBracketDivision(key)}>{label}<small>{snapshot.matches.filter((match) => match.division === key && match.round === 1).length} คู่แรก</small></button>)}</div>}{snapshot.matches.length > 0 && <button type="button" className={styles.scheduleBar} onClick={() => setScheduleOpen(true)}><CalendarDays size={16} /><span>ตารางแข่งวันนี้</span><b>{todayCount} คู่</b></button>}<TournamentBracket snapshot={snapshot} admin division={bracketDivision} onSelectMatch={setScoreTarget} onUpdateMatchDate={(match, value) => void saveMatchDate(match, value)} onSelectPlayer={setProfileTarget} /></section>
     </div>
     {recoveryTarget && <AdminRecoverySheet player={recoveryTarget} issued={issuedRecovery} loading={issuingRecovery} onIssue={() => void issueRecoveryCode()} onClose={closeRecoverySheet} />}
     {deleteTarget && <AdminDeleteSheet player={deleteTarget} loading={mutating} error={deleteError} onDelete={() => void confirmDeletePlayer()} onClose={() => { setDeleteTarget(null); setDeleteError(""); }} />}
     {editTarget && <AdminEditPlayerSheet key={editTarget.id} player={editTarget} loading={editing} error={editError} onSave={(input) => void savePlayerProfile(input)} onClose={() => { setEditTarget(null); setEditError(""); }} />}
     {scoreTarget && <ScoreEntrySheet key={`${scoreTarget.id}-${scoreTarget.revision}`} match={scoreTarget} players={snapshot.players} onSave={saveScore} onClose={() => setScoreTarget(null)} />}
+    {scheduleOpen && <TodayScheduleSheet snapshot={snapshot} dateKey={today || localDateKey()} onClose={() => setScheduleOpen(false)} onSelectPlayer={(player) => { setScheduleOpen(false); setProfileTarget(player); }} />}
     {profileTarget && <PlayerProfileSheet player={profileTarget} snapshot={snapshot} onClose={() => setProfileTarget(null)} />}
     {rosterOpen && <AdminRosterSheet players={players} loading={loading} mutating={mutating} filter={rosterFilter} onFilter={setRosterFilter} onRefresh={() => void loadData()} onSetGender={setPlayerGender} onEdit={(target) => { setEditTarget(target); setEditError(""); }} onIssueRecovery={(target) => { setRecoveryTarget(target); setIssuedRecovery(null); }} onDelete={(target) => { setDeleteTarget(target); setDeleteError(""); }} onClose={() => setRosterOpen(false)} />}
   </main>;
